@@ -72,8 +72,8 @@ class small_dataset(Dataset):
         self.resample = torchaudio.transforms.Resample(orig_freq=self.sr, new_freq=self.new_sr)
         self.x = self.resample(self.x)
         self.transforms_aug = [
-            RandomApply([Noise(min_snr=0.1, max_snr=0.2)], p=0.5),
-            RandomApply([Gain()], p=0.5),
+            RandomApply([Noise(min_snr=0.1, max_snr=0.2)], p=0),
+            RandomApply([Gain()], p=0),
         ]
         self.transform_aug = Compose(transforms= self.transforms_aug)
 

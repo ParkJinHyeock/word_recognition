@@ -1,11 +1,12 @@
 import torch
+torch.manual_seed(215)
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 
 class FC_Net(nn.Module):
-    def __init__(self, n_input=1, n_output=35, stride=16, n_channel=32, batch_size=32):
+    def __init__(self, n_input=1, n_output=35, stride=16, n_channel=64, batch_size=32):
         super().__init__()
         self.n_channel = n_channel
         self.conv1 = nn.Conv2d(n_input, n_channel, kernel_size=[3, 3], stride=[1, 1])
@@ -16,9 +17,9 @@ class FC_Net(nn.Module):
         self.bn2 = nn.BatchNorm2d(n_channel)
         self.conv3 = nn.Conv2d(n_channel, 2 * n_channel, kernel_size=[3, 3], stride=[1, 1])
         self.pool3 = nn.MaxPool2d((2,2))
-        self.conv4 = nn.Conv2d(2* n_channel, 2 * n_channel, kernel_size=[3, 3], stride=[1, 1])
+        self.conv4 = nn.Conv2d(2 * n_channel, 2 * n_channel, kernel_size=[3, 3], stride=[1, 1])
         self.bn3 = nn.BatchNorm2d(n_channel*2)
-        self.gru1 = nn.GRU(input_size=33, hidden_size=100, num_layers=2, bidirectional=False)
+        self.gru1 = nn.GRU(input_size=65, hidden_size=100, num_layers=2, bidirectional=True)
         self.output = n_output
         self.weight = None
         self.flat = nn.Flatten()
@@ -27,6 +28,8 @@ class FC_Net(nn.Module):
         self.drop3 = nn.Dropout(p=0.2)
         self.batch = batch_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.linear_1 = torch.nn.Linear(n_output, 3*n_output)
+        self.linear_2 = torch.nn.Linear(3*n_output, n_output)
 
     def forward(self, x):
         # x = x.permute(0, 1, 3, 2)
@@ -42,11 +45,18 @@ class FC_Net(nn.Module):
         x = self.drop1(x)
         x = self.pool2(x)
         x = self.conv3(x)
+        x = F.relu(x)
         x = self.drop2(x)
+        x = self.conv4(x)
+        x = F.relu(x)
         x = x.permute(0, 1, 3, 2)
         x = self.flat(x)
         if self.weight is None:
            self.weight = nn.Parameter(torch.randn(self.output, x.size()[1])).to(self.device)
         x = F.linear(x, self.weight)
+        # x = F.relu(x)
+        # x = self.linear_1(x)
+        # x = F.relu(x)
+        # x = self.linear_2(x)
         # x = self.drop3(x)
         return F.log_softmax(x, dim=1)
