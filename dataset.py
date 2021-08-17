@@ -30,42 +30,47 @@ class SubsetSC(SPEECHCOMMANDS):
 
 
 class small_dataset(Dataset):
-    def __init__(self, root_dir, mode, hard_split):
+    def __init__(self, root_dir, mode, split_mode):
         self.root_dir = root_dir
         self.class_list = os.listdir(root_dir)
         self.x = []
         self.y = []
         self.mode = mode
-        self.hard_split = hard_split
+        self.split_mode = split_mode
         count = 0
         for item in self.class_list:
             item_dir = os.path.join(self.root_dir, item)
             x_list = glob(item_dir + '/*.wav')
             y_list = [item]*len(x_list)
             for x, y in zip(x_list, y_list):
-                if count == 0:
-                    audio = torchaudio.load(x)[0]
-                    self.x = (audio - torch.mean(audio)) / torch.max(torch.abs(audio))
-                else:
-                    try:
+                if x.split('_')[-1].split('.')[0] not in  ['2', '5']:
+                    if count == 0:
                         audio = torchaudio.load(x)[0]
-                        self.x = torch.vstack((self.x, (audio - torch.mean(audio)) / torch.max(torch.abs(audio))))
-                    except:
-                        continue
-                if self.hard_split:
-                    self.y = self.y + [(y, x.split('_')[-1].split('.')[0])]
-                elif self.mode == 'human':
-                    self.y = self.y + [x.split('_')[-1].split('.')[0]]
-                elif self.mode == 'word':
-                    self.y = self.y + [y]
-                count += 1
-        if not(self.hard_split):
+                        self.x = (audio - torch.mean(audio)) / torch.max(torch.abs(audio))
+                    else:
+                        try:
+                            audio = torchaudio.load(x)[0]
+                            self.x = torch.vstack((self.x, (audio - torch.mean(audio)) / torch.max(torch.abs(audio))))
+                        except:
+                            continue
+                        
+                        if self.split_mode != 'random':
+                            self.y = self.y + [(y, x.split('_')[-1].split('.')[0])]
+
+                        else:
+                            if self.mode == 'human':
+                                self.y = self.y + [x.split('_')[-1].split('.')[0]]
+                            elif self.mode == 'word':
+                                self.y = self.y + [y]
+                    count += 1
+
+        if self.split_mode != 'random':
             self.labels = sorted(list(set(data for data in self.y)))
         else:
             if self.mode == 'word':
-                self.labels = sorted(list(set(data[0] for data in self.y)))
+                self.labels = sorted(list(set(data for data in self.y)))
             elif self.mode == 'human':
-                self.labels = sorted(list(set(data[1] for data in self.y)))
+                self.labels = sorted(list(set(data for data in self.y)))
 
         self.sr = torchaudio.load(x)[1]
         self.new_sr = 1000
@@ -88,8 +93,10 @@ class small_dataset(Dataset):
         for item in self.y:
             if self.mode == 'word':
                 temp.append(item[0])
+                self.labels = sorted(list(set(data[0] for data in self.y)))
             elif self.mode == 'human':
                 temp.append(item[1])
+                self.labels = sorted(list(set(data[1] for data in self.y)))
         self.y = temp
 
     def to_index(self):

@@ -22,14 +22,17 @@ import argparse
 import matplotlib.pyplot as plt
 from sklearn.metrics import plot_confusion_matrix
 from sklearn.metrics import confusion_matrix
+from sklearn.model_selection import train_test_split
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--model', type=str, default='2D')
 parser.add_argument('--mode', type=str, default='word')
-parser.add_argument('--hard_split', type=bool, default=False)
+parser.add_argument('--path', type=str, default='./data_reco')
+parser.add_argument('--split_mode', type=str, default='random')
 args = parser.parse_args()
 
 mode = args.mode
-hard_split = args.hard_split
+split_mode = args.split_mode
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
  
 
@@ -40,38 +43,38 @@ else:
     num_workers = 0
     pin_memory = False
 
-dataset = small_dataset('./data_reco', mode, hard_split)
+dataset = small_dataset(args.path, mode, split_mode)
 
-if hard_split:
-    validation_split = 0.111112
-else:
-    validation_split = 0.2
-
+validation_split = 0.3
 dataset_size = len(dataset)
 shuffle_dataset = True
-
-if not(hard_split):
-    indices = list(range(dataset_size))
-    split = int(np.floor(validation_split * dataset_size))
-    if shuffle_dataset:
-        np.random.shuffle(indices)
 
 train_indices = []
 val_indices = []
 
-if hard_split:
-    for i, data in enumerate(dataset):
-        if (data[1][1] != '10') or not(data[1][0] in ['before', 'close', 'continue', 'fast']):
-            train_indices.append(i)
-        else:
-            val_indices.append(i)
-    dataset.remove()
-
-else:
+if split_mode == 'random':
+    indices = list(range(dataset_size))
+    split = int(np.floor(validation_split * dataset_size))
+    if shuffle_dataset:
+        np.random.shuffle(indices)
     train_indices, val_indices = indices[split:], indices[:split]
 
+
+else:
+    indices = list(range(dataset_size))
+    if split_mode == 'human':
+        label_list = [item[1][1] for item in dataset]
+    elif split_mode == 'word':
+        label_list = [item[1][0] for item in dataset]
+    elif split_mode == 'human_word':
+        label_list = [item[1] for item in dataset]
+    
+    splited = train_test_split(indices, label_list, test_size=validation_split, stratify=label_list)
+    train_indices = splited[0]
+    val_indices = splited[1]
+    dataset.remove()
+
 labels = dataset.to_index()
-print(labels)
 train_sampler = SubsetRandomSampler(train_indices)
 valid_sampler = SubsetRandomSampler(val_indices)
 
