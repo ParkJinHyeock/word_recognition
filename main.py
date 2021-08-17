@@ -33,6 +33,7 @@ args = parser.parse_args()
 
 mode = args.mode
 split_mode = args.split_mode
+model_base = args.model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
  
 
@@ -45,7 +46,7 @@ else:
 
 dataset = small_dataset(args.path, mode, split_mode)
 
-validation_split = 0.3
+validation_split = 0.2
 dataset_size = len(dataset)
 shuffle_dataset = True
 
@@ -88,12 +89,28 @@ sample_rate = dataset[0][2]
 new_sample_rate = 1000
 waveform = dataset[0][0]
 transform = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=new_sample_rate)
-spec = torchaudio.transforms.Spectrogram(n_fft=128).to(device)
-data = next(iter(train_loader))
-db = torchaudio.transforms.AmplitudeToDB()
-m = db(spec(data[0].cuda())).mean(axis=0)
-s = db(spec(data[0].cuda())).std(axis=0)
-transformed = torchaudio.transforms.Spectrogram(n_fft=128)(waveform)
+
+if model_base == '2D':
+    spec = torchaudio.transforms.Spectrogram(n_fft=128).to(device)
+    data = next(iter(train_loader))
+    db = torchaudio.transforms.AmplitudeToDB()
+    m = db(spec(data[0].cuda())).mean(axis=0)
+    s = db(spec(data[0].cuda())).std(axis=0)
+    transformed = torchaudio.transforms.Spectrogram(n_fft=128)(waveform)
+    model = FC_Net(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
+
+elif model_base == '1D':
+    transformed = transform(waveform)
+    model = sample_NET(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
+
+
+model.to(device)
+model.train()
+n = count_parameters(model)
+print("Number of parameters: %s" % n)
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
+
 
 def train(model, epoch, log_interval):
     pbar = tqdm(train_loader)
@@ -104,9 +121,11 @@ def train(model, epoch, log_interval):
         data = data.to(device)
         target = target.to(device)
 
-        data = spec(data)
-        data = db(data)
-        data = (data - m)/s
+        if model_base ==' 2D':
+            data = spec(data)
+            data = db(data)
+            data = (data - m)/s
+
         output = model(data)
         pred = get_likely_index(output)
         correct += number_of_correct(pred, target)
@@ -133,13 +152,6 @@ def train(model, epoch, log_interval):
     accuracy = 100. * correct / (len(train_loader.dataset)*(1-validation_split))
     return sum(losses)/len(losses), accuracy
 
-model = FC_Net(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
-model.to(device)
-model.train()
-n = count_parameters(model)
-print("Number of parameters: %s" % n)
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
 
 
 def test(model, epoch, test_loader_):
@@ -151,10 +163,13 @@ def test(model, epoch, test_loader_):
     losses = []
     for data, target in pbar:
         data = data.to(device)
-        target = target.to(device)        
-        data = spec(data)
-        data = db(data)
-        data = (data - m)/s
+        target = target.to(device)     
+
+        if model_base == '2D':
+            data = spec(data)
+            data = db(data)
+            data = (data - m)/s
+
         output = model(data)    
         pred = get_likely_index(output)
         empty_pred = torch.cat([empty_pred, pred])
