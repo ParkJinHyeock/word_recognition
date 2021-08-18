@@ -76,6 +76,7 @@ else:
     dataset.remove()
 
 labels = dataset.to_index()
+print(labels)
 train_sampler = SubsetRandomSampler(train_indices)
 valid_sampler = SubsetRandomSampler(val_indices)
 
@@ -121,7 +122,7 @@ def train(model, epoch, log_interval):
         data = data.to(device)
         target = target.to(device)
 
-        if model_base ==' 2D':
+        if model_base =='2D':
             data = spec(data)
             data = db(data)
             data = (data - m)/s

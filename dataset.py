@@ -54,31 +54,24 @@ class small_dataset(Dataset):
                         except:
                             continue
                         
-                        if self.split_mode != 'random':
-                            self.y = self.y + [(y, x.split('_')[-1].split('.')[0])]
+                    if self.split_mode != 'random':
+                        self.y = self.y + [(y, x.split('_')[-1].split('.')[0])]
 
-                        else:
-                            if self.mode == 'human':
-                                self.y = self.y + [x.split('_')[-1].split('.')[0]]
-                            elif self.mode == 'word':
-                                self.y = self.y + [y]
+                    else:
+                        if self.mode == 'human':
+                            self.y = self.y + [x.split('_')[-1].split('.')[0]]
+                        elif self.mode == 'word':
+                            self.y = self.y + [y]
                     count += 1
 
-        if self.split_mode != 'random':
-            self.labels = sorted(list(set(data for data in self.y)))
-        else:
-            if self.mode == 'word':
-                self.labels = sorted(list(set(data for data in self.y)))
-            elif self.mode == 'human':
-                self.labels = sorted(list(set(data for data in self.y)))
-
+        self.labels = sorted(list(set(data for data in self.y)))
         self.sr = torchaudio.load(x)[1]
         self.new_sr = 1000
         self.resample = torchaudio.transforms.Resample(orig_freq=self.sr, new_freq=self.new_sr)
         self.x = self.resample(self.x)
         self.transforms_aug = [
-            RandomApply([Noise(min_snr=0.1, max_snr=0.2)], p=0.2),
-            RandomApply([Gain()], p=0.2),
+            RandomApply([Noise(min_snr=0.1, max_snr=0.2)], p=0),
+            RandomApply([Gain()], p=0),
         ]
         self.transform_aug = Compose(transforms= self.transforms_aug)
 
@@ -93,10 +86,12 @@ class small_dataset(Dataset):
         for item in self.y:
             if self.mode == 'word':
                 temp.append(item[0])
-                self.labels = sorted(list(set(data[0] for data in self.y)))
             elif self.mode == 'human':
                 temp.append(item[1])
-                self.labels = sorted(list(set(data[1] for data in self.y)))
+        if self.mode == 'word':
+            self.labels = sorted(list(set(data[0] for data in self.y)))
+        elif self.mode =='human':
+            self.labels = sorted(list(set(data[1] for data in self.y)))
         self.y = temp
 
     def to_index(self):
