@@ -23,6 +23,8 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import plot_confusion_matrix
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
+import random
+random.seed(213)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='2D')
@@ -67,12 +69,30 @@ else:
         label_list = [item[1][1] for item in dataset]
     elif split_mode == 'word':
         label_list = [item[1][0] for item in dataset]
-    elif split_mode == 'human_word':
+    elif split_mode == 'human_word' or split_mode == 'cross':
         label_list = [item[1] for item in dataset]
     
-    splited = train_test_split(indices, label_list, test_size=validation_split, stratify=label_list)
-    train_indices = splited[0]
-    val_indices = splited[1]
+    if split_mode != 'cross':
+        splited = train_test_split(indices, label_list, test_size=validation_split, stratify=label_list)
+        train_indices = splited[0]
+        val_indices = splited[1]
+    else:
+        if mode == 'human':
+            word_list = list(set([item[0] for item in label_list]))
+            pick  = random.choices(word_list, k=int(len(word_list)*validation_split))
+            for i, item in enumerate(label_list):
+                if item[0] in pick:
+                    val_indices.append(i)
+                else:
+                    train_indices.append(i)
+        else:
+            human_list = list(set([item[1] for item in label_list]))
+            pick  = random.choices(human_list, k=int(len(human_list)*validation_split))        
+            for i, item in enumerate(label_list):
+                if item[1] in pick:
+                    val_indices.append(i)
+                else:
+                    train_indices.append(i)
     dataset.remove()
 
 labels = dataset.to_index()
@@ -130,25 +150,28 @@ def train(model, epoch, log_interval):
         output = model(data)
         pred = get_likely_index(output)
         correct += number_of_correct(pred, target)
-        l2_lambda = 0.001
+        l2_lambda = 0.0001
         l2_reg = torch.tensor(0.).cuda()
         for param in model.parameters():
             l2_reg += torch.norm(param)
-        loss = F.nll_loss(output.squeeze(), target)
+        try:
+            loss = F.nll_loss(output.squeeze(), target)
+        except:
+            import pdb; pdb.set_trace()
         loss += l2_lambda * l2_reg
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # print training stats
-        if batch_idx % log_interval == 0:
-            print(f"\nTrain Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)*(1-validation_split)} ({100. * batch_idx / len(train_loader)*(1-validation_split):.0f}%)]\tLoss: {loss.item():.6f}")
+        # # print training stats
+        # if batch_idx % log_interval == 0:
+        #     print(f"\nTrain Epoch: {epoch} [{batch_idx * len(data)}/{len(train_indices))} ({100. * batch_idx / len(train_indices):.0f}%)]\tLoss: {loss.item():.6f}")
 
         # update progress bar
         pbar.update(pbar_update)
         # record loss
         losses.append(loss.item())
-    print(f"\nTrain Epoch: {epoch}\tAccuracy: {correct}/{len(train_loader.dataset)*(1-validation_split)} ({100. * correct / (len(train_loader.dataset)*(1-validation_split)):.0f}%)\n")
+    print(f"\nTrain Epoch: {epoch}\tAccuracy: {correct}/{len(train_indices)} ({100. * correct / len(train_indices):.0f}%)\n")
     # count number of correct predictions
     accuracy = 100. * correct / (len(train_loader.dataset)*(1-validation_split))
     return sum(losses)/len(losses), accuracy
@@ -181,8 +204,8 @@ def test(model, epoch, test_loader_):
         # update progress bar
         pbar.update(pbar_update)
 
-    print(f"\nTest Epoch: {epoch}\tAccuracy: {correct}/{len(test_loader_.dataset)*validation_split} ({100. * correct / (len(test_loader_.dataset)*validation_split):.0f}%)\n")
-    accuracy = 100. * correct / (len(test_loader_.dataset)*validation_split)
+    print(f"\nTest Epoch: {epoch}\tAccuracy: {correct}/{len(val_indices)} ({100. * correct / len(val_indices):.0f}%)\n")
+    accuracy = 100. * correct / len(val_indices)
     return  sum(losses)/len(losses), accuracy, empty_pred, empty_target
 
 log_interval = 300
