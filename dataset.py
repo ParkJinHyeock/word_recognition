@@ -43,7 +43,8 @@ class small_dataset(Dataset):
             x_list = glob(item_dir + '/*.wav')
             y_list = [item]*len(x_list)
             for x, y in zip(x_list, y_list):
-                if x.split('_')[-1].split('.')[0] not in  ['2', '5']:
+                if y not in ['close']:
+                # if x.split('_')[-1].split('.')[0] not in  ['2', '5']:
                     if count == 0:
                         audio = torchaudio.load(x)[0]
                         self.x = (audio - torch.mean(audio)) / torch.max(torch.abs(audio))

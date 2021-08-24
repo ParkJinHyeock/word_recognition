@@ -1,11 +1,16 @@
 import torch
-torch.manual_seed(215)
+import torch.backends.cudnn as cudnn
+import random
+import numpy as np
+import os
+# CUBLAS_WORKSPACE_CONFIG=4096
+    
+
+
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchaudio
-import numpy as np
-np.random.seed(214)
 
 from torch.utils.data.sampler import SubsetRandomSampler
 from torch.utils.tensorboard import SummaryWriter
@@ -23,8 +28,31 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import plot_confusion_matrix
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
-import random
-random.seed(213)
+import torchaudio.transforms as T
+
+def seed_all(seed: int = 1930):
+
+    print("Using Seed Number {}".format(seed))
+
+    os.environ["PYTHONHASHSEED"] = str(
+        seed)  # set PYTHONHASHSEED env var at fixed value
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.cuda.manual_seed(seed)  # pytorch (both CPU and CUDA)
+    np.random.seed(seed)  # for numpy pseudo-random generator
+    random.seed(
+        seed)  # set fixed value for python built-in pseudo-random generator
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.enabled = False
+
+
+def seed_worker(_worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+    
+seed_all(seed=214)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='2D')
@@ -78,7 +106,7 @@ else:
         val_indices = splited[1]
     else:
         if mode == 'human':
-            word_list = list(set([item[0] for item in label_list]))
+            word_list = sorted(list(set([item[0] for item in label_list])))
             pick  = random.choices(word_list, k=int(len(word_list)*validation_split))
             for i, item in enumerate(label_list):
                 if item[0] in pick:
@@ -86,7 +114,7 @@ else:
                 else:
                     train_indices.append(i)
         else:
-            human_list = list(set([item[1] for item in label_list]))
+            human_list = sorted(list(set([item[1] for item in label_list])))
             pick  = random.choices(human_list, k=int(len(human_list)*validation_split))        
             for i, item in enumerate(label_list):
                 if item[1] in pick:
@@ -100,11 +128,12 @@ print(labels)
 train_sampler = SubsetRandomSampler(train_indices)
 valid_sampler = SubsetRandomSampler(val_indices)
 
+
 batch_size = 8
-train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False,
-                                           collate_fn=collate_fn, sampler=train_sampler)
-test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False,
-                                           collate_fn=collate_fn, sampler=valid_sampler)
+train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=True,
+                                           collate_fn=collate_fn, sampler=train_sampler, num_workers=0, worker_init_fn=seed_worker)
+test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=True,
+                                           collate_fn=collate_fn, sampler=valid_sampler, num_workers=0, worker_init_fn=seed_worker)
 
 sample_rate = dataset[0][2]
 new_sample_rate = 1000
@@ -118,7 +147,8 @@ if model_base == '2D':
     m = db(spec(data[0].cuda())).mean(axis=0)
     s = db(spec(data[0].cuda())).std(axis=0)
     transformed = torchaudio.transforms.Spectrogram(n_fft=128)(waveform)
-    model = FC_Net(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
+    # model = FC_Net(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
+    model = SpinalVGG(num_classes=len(labels))
 
 elif model_base == '1D':
     transformed = transform(waveform)
@@ -132,6 +162,8 @@ print("Number of parameters: %s" % n)
 optimizer = optim.Adam(model.parameters(), lr=0.0001)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
 
+freq_masking = T.FrequencyMasking(freq_mask_param=25)
+time_masking = T.TimeMasking(time_mask_param=15)
 
 def train(model, epoch, log_interval):
     pbar = tqdm(train_loader)
@@ -146,18 +178,16 @@ def train(model, epoch, log_interval):
             data = spec(data)
             data = db(data)
             data = (data - m)/s
-
+            # data = freq_masking(data)
+            # data = time_masking(data)
         output = model(data)
         pred = get_likely_index(output)
         correct += number_of_correct(pred, target)
-        l2_lambda = 0.0001
+        l2_lambda = 0.001
         l2_reg = torch.tensor(0.).cuda()
         for param in model.parameters():
             l2_reg += torch.norm(param)
-        try:
-            loss = F.nll_loss(output.squeeze(), target)
-        except:
-            import pdb; pdb.set_trace()
+            loss = F.nll_loss(output, target)
         loss += l2_lambda * l2_reg
 
         optimizer.zero_grad()
