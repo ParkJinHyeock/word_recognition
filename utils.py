@@ -26,8 +26,10 @@ def collate_fn(batch):
 
     # Group the list of tensors into a batched tensor
     tensors = pad_sequence(tensors)
-    targets = torch.stack(targets)
-
+    try:
+        targets = torch.stack(targets)
+    except:
+        import pdb; pdb.set_trace()
     return tensors, targets
 
 def count_parameters(model):

@@ -7,7 +7,10 @@ import torchaudio
 from audio_augmentations import *
 from time import time
 from utils import *
-
+from scipy import signal
+import numpy as np
+import pywt
+from skimage.restoration import denoise_wavelet
 
 
 class SubsetSC(SPEECHCOMMANDS):
@@ -30,9 +33,10 @@ class SubsetSC(SPEECHCOMMANDS):
 
 
 class small_dataset(Dataset):
-    def __init__(self, root_dir, mode, split_mode):
+    def __init__(self, root_dir, mode, split_mode, train):
         self.root_dir = root_dir
-        self.class_list = os.listdir(root_dir)
+        self.class_list = sorted(os.listdir(root_dir))
+        self.train = train
         self.x = []
         self.y = []
         self.mode = mode
@@ -40,10 +44,10 @@ class small_dataset(Dataset):
         count = 0
         for item in self.class_list:
             item_dir = os.path.join(self.root_dir, item)
-            x_list = glob(item_dir + '/*.wav')
+            x_list = sorted(glob(item_dir + '/*.wav'))
             y_list = [item]*len(x_list)
             for x, y in zip(x_list, y_list):
-                if y not in ['close']:
+                if y not in ['resume', 'slow']:
                 # if x.split('_')[-1].split('.')[0] not in  ['2', '5']:
                     if count == 0:
                         audio = torchaudio.load(x)[0]
@@ -69,10 +73,16 @@ class small_dataset(Dataset):
         self.sr = torchaudio.load(x)[1]
         self.new_sr = 1000
         self.resample = torchaudio.transforms.Resample(orig_freq=self.sr, new_freq=self.new_sr)
+        # self.filter = signal.butter(10, 1000, 'lp', fs=self.sr, output='sos')
+        # self.x = signal.sosfilt(self.filter, self.x)
+        # self.x = torch.tensor(self.x, dtype=torch.float32)
+        # self.x = self.x.numpy()
+        # self.x = denoise_wavelet(self.x, method='BayesShrink', mode='soft', wavelet_levels=3, wavelet='sym8',rescale_sigma='True')
+        # self.x = torch.tensor(self.x, dtype=torch.float32)
         self.x = self.resample(self.x)
         self.transforms_aug = [
-            RandomApply([Noise(min_snr=0.1, max_snr=0.2)], p=0),
-            RandomApply([Gain()], p=0),
+            RandomApply([Noise(min_snr=0.1, max_snr=0.5)], p=1),
+            RandomApply([Gain(min_gain=-10, max_gain=10)], p=1),
         ]
         self.transform_aug = Compose(transforms= self.transforms_aug)
 
@@ -80,7 +90,10 @@ class small_dataset(Dataset):
         return len(self.y)
 
     def __getitem__(self, idx):
-        return self.transform_aug(torch.reshape(self.x[idx], [1, self.x[idx].shape[0]])), self.y[idx], self.sr 
+        if self.train:
+            return self.transform_aug(torch.reshape(self.x[idx], [1, self.x[idx].shape[0]])), self.y[idx], self.sr 
+        else:
+            return torch.reshape(self.x[idx], [1, self.x[idx].shape[0]]), self.y[idx], self.sr
 
     def remove(self):
         temp = []

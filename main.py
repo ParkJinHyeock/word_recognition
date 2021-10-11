@@ -59,11 +59,14 @@ parser.add_argument('--model', type=str, default='2D')
 parser.add_argument('--mode', type=str, default='word')
 parser.add_argument('--path', type=str, default='./data_reco')
 parser.add_argument('--split_mode', type=str, default='random')
+parser.add_argument('--use_mel', type=bool, default=False)
+
 args = parser.parse_args()
 
 mode = args.mode
 split_mode = args.split_mode
 model_base = args.model
+use_mel = args.use_mel
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
  
 
@@ -74,7 +77,8 @@ else:
     num_workers = 0
     pin_memory = False
 
-dataset = small_dataset(args.path, mode, split_mode)
+dataset = small_dataset(args.path, mode, split_mode, train=True)
+dataset_test = small_dataset(args.path, mode, split_mode, train=False)
 
 validation_split = 0.2
 dataset_size = len(dataset)
@@ -122,38 +126,57 @@ else:
                 else:
                     train_indices.append(i)
     dataset.remove()
+    dataset_test.remove()
 
 labels = dataset.to_index()
+labels_test = dataset_test.to_index()
 print(labels)
 train_sampler = SubsetRandomSampler(train_indices)
 valid_sampler = SubsetRandomSampler(val_indices)
 
 
-batch_size = 8
+batch_size = 10
 train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=True,
                                            collate_fn=collate_fn, sampler=train_sampler, num_workers=0, worker_init_fn=seed_worker)
-test_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=True,
+test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, drop_last=True,
                                            collate_fn=collate_fn, sampler=valid_sampler, num_workers=0, worker_init_fn=seed_worker)
 
 sample_rate = dataset[0][2]
 new_sample_rate = 1000
 waveform = dataset[0][0]
-transform = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=new_sample_rate)
+# transform = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=new_sample_rate)
 
 if model_base == '2D':
-    spec = torchaudio.transforms.Spectrogram(n_fft=128).to(device)
+    spec = torchaudio.transforms.Spectrogram(n_fft=128, hop_length=16).to(device)
     data = next(iter(train_loader))
     db = torchaudio.transforms.AmplitudeToDB()
-    m = db(spec(data[0].cuda())).mean(axis=0)
-    s = db(spec(data[0].cuda())).std(axis=0)
-    transformed = torchaudio.transforms.Spectrogram(n_fft=128)(waveform)
+    if use_mel:
+        mel = torchaudio.transforms.MelScale(n_mels=64, sample_rate=new_sample_rate).cuda()
+        m = mel(db(spec(data[0].cuda()))).mean(axis=0)
+        s = mel(db(spec(data[0].cuda()))).std(axis=0)
+        
+        # mel = torchaudio.transforms.MFCC(sample_rate=1000, n_mfcc=20).cuda()
+        # m = mel(data[0].cuda()).mean(axis=0)
+        # s = mel(data[0].cuda()).std(axis=0)
+    else:
+        m = db(spec(data[0].cuda())).mean(axis=0)
+        s = db(spec(data[0].cuda())).std(axis=0)
+
+    # transformed = torchaudio.transforms.Spectrogram(n_fft=128)(waveform)
+    # transformed = mel(waveform.cuda())
     # model = FC_Net(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
-    model = SpinalVGG(num_classes=len(labels))
+    model = CNN_TD(num_classes=len(labels))
+    # model = BCResNet(output_size=len(labels))
 
 elif model_base == '1D':
-    transformed = transform(waveform)
-    model = sample_NET(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
+    model = sample_NET(n_input=waveform.shape[0], n_output=len(labels), batch_size=batch_size)
 
+# elif model_base == 'wavelet':
+#     from pytorch_wavelets import DWT1DForward, DWT1DInverse
+#     dwt = DWT1DForward(wave='db1', J=3).to(device)
+#     transformed = dwt(waveform.unsqueeze(0).cuda())
+#     catted = torch.cat(transformed[1], axis=-1)
+#     model = sample_NET(n_input=1, n_output=len(labels), batch_size=batch_size)
 
 model.to(device)
 model.train()
@@ -162,8 +185,8 @@ print("Number of parameters: %s" % n)
 optimizer = optim.Adam(model.parameters(), lr=0.0001)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
 
-freq_masking = T.FrequencyMasking(freq_mask_param=25)
-time_masking = T.TimeMasking(time_mask_param=15)
+freq_masking = T.FrequencyMasking(freq_mask_param=5)
+time_masking = T.TimeMasking(time_mask_param=3)
 
 def train(model, epoch, log_interval):
     pbar = tqdm(train_loader)
@@ -177,9 +200,16 @@ def train(model, epoch, log_interval):
         if model_base =='2D':
             data = spec(data)
             data = db(data)
+            
+            if use_mel:
+                data = mel(data)
             data = (data - m)/s
-            # data = freq_masking(data)
-            # data = time_masking(data)
+            data = freq_masking(data)
+            data = time_masking(data)
+
+        elif model_base == 'wavelet':
+            data = dwt(data)
+            data = torch.cat(data[1], axis=-1)
         output = model(data)
         pred = get_likely_index(output)
         correct += number_of_correct(pred, target)
@@ -215,14 +245,20 @@ def test(model, epoch, test_loader_):
     empty_pred = torch.empty((0),device='cuda')
     empty_target = torch.empty((0),device='cuda')
     losses = []
-    for data, target in pbar:
+    for (data, target) in pbar:
         data = data.to(device)
         target = target.to(device)     
 
         if model_base == '2D':
             data = spec(data)
             data = db(data)
+            if use_mel:
+                data = mel(data)
             data = (data - m)/s
+
+        elif model_base == 'wavelet':
+            data = dwt(data)
+            data = torch.cat(data[1], axis=-1)
 
         output = model(data)    
         pred = get_likely_index(output)
@@ -244,7 +280,6 @@ n_epoch = 100
 pbar_update = 1 / (len(train_loader) + len(test_loader))
 
 # The transform needs to live on the same device as the model and the data.
-transform = transform.to(device)
 max_patient = 10
 writer = SummaryWriter()
 
