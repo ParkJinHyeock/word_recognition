@@ -592,7 +592,7 @@ class CNN_TD(nn.Module):
         if BN:
           mod_list.append(nn.BatchNorm2d(fsize))
         if DO:
-          mod_list.append(nn.Dropout(0.1)) 
+          mod_list.append(nn.Dropout(0))
         mod_list.append(nn.ReLU())
       if MP:
         mod_list.append(nn.MaxPool2d(kernel_size=pool_size, stride=strides))

@@ -52,7 +52,7 @@ def seed_worker(_worker_id):
     np.random.seed(worker_seed)
     random.seed(worker_seed)
     
-seed_all(seed=214)
+seed_all(seed=217)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='2D')
@@ -60,6 +60,8 @@ parser.add_argument('--mode', type=str, default='word')
 parser.add_argument('--path', type=str, default='./data_reco')
 parser.add_argument('--split_mode', type=str, default='random')
 parser.add_argument('--use_mel', type=bool, default=False)
+parser.add_argument('--save_path', type=str, default='save_image')
+parser.add_argument('--number', type=str, default='0')
 
 args = parser.parse_args()
 
@@ -67,6 +69,7 @@ mode = args.mode
 split_mode = args.split_mode
 model_base = args.model
 use_mel = args.use_mel
+number = int(args.number)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
  
 
@@ -80,7 +83,7 @@ else:
 dataset = small_dataset(args.path, mode, split_mode, train=True)
 dataset_test = small_dataset(args.path, mode, split_mode, train=False)
 
-validation_split = 0.2
+validation_split = 0.3
 dataset_size = len(dataset)
 shuffle_dataset = True
 
@@ -101,13 +104,30 @@ else:
         label_list = [item[1][1] for item in dataset]
     elif split_mode == 'word':
         label_list = [item[1][0] for item in dataset]
-    elif split_mode == 'human_word' or split_mode == 'cross':
+    elif split_mode == 'human_word' or split_mode == 'cross' or split_mode == 'huristic_cross':
         label_list = [item[1] for item in dataset]
-    
-    if split_mode != 'cross':
+    if 'cross' not in split_mode:
         splited = train_test_split(indices, label_list, test_size=validation_split, stratify=label_list)
         train_indices = splited[0]
         val_indices = splited[1]
+    elif split_mode == 'huristic_cross':
+        if mode == 'human':
+            word_list = sorted(list(set([item[0] for item in label_list])))
+            pick = word_list[number]
+            for i, item in enumerate(label_list):
+                if item[0] in pick:
+                    val_indices.append(i)
+                else:
+                    train_indices.append(i)
+        else:
+            human_list = sorted(list(set([item[1] for item in label_list])))
+            pick  = human_list[number]      
+            print(f'picked_human is{pick}')
+            for i, item in enumerate(label_list):
+                if item[1] in pick:
+                    val_indices.append(i)
+                else:
+                    train_indices.append(i)
     else:
         if mode == 'human':
             word_list = sorted(list(set([item[0] for item in label_list])))
@@ -151,21 +171,23 @@ if model_base == '2D':
     data = next(iter(train_loader))
     db = torchaudio.transforms.AmplitudeToDB()
     if use_mel:
-        mel = torchaudio.transforms.MelScale(n_mels=64, sample_rate=new_sample_rate).cuda()
-        m = mel(db(spec(data[0].cuda()))).mean(axis=0)
-        s = mel(db(spec(data[0].cuda()))).std(axis=0)
+        mel = torchaudio.transforms.MelScale(n_mels=64, sample_rate=new_sample_rate).to(device)
+        m = mel(db(spec(data[0].to(device)))).mean(axis=0)
+        s = mel(db(spec(data[0].to(device)))).std(axis=0)
         
-        # mel = torchaudio.transforms.MFCC(sample_rate=1000, n_mfcc=20).cuda()
-        # m = mel(data[0].cuda()).mean(axis=0)
-        # s = mel(data[0].cuda()).std(axis=0)
+        # mel = torchaudio.transforms.MFCC(sample_rate=1000, n_mfcc=20).to(device)
+        # m = mel(data[0].to(device)).mean(axis=0)
+        # s = mel(data[0].to(device)).std(axis=0)
     else:
-        m = db(spec(data[0].cuda())).mean(axis=0)
-        s = db(spec(data[0].cuda())).std(axis=0)
+        m = db(spec(data[0].to(device))).mean(axis=0)
+        s = db(spec(data[0].to(device))).std(axis=0)
 
-    # transformed = torchaudio.transforms.Spectrogram(n_fft=128)(waveform)
-    # transformed = mel(waveform.cuda())
+    transformed = torchaudio.transforms.Spectrogram(n_fft=128)(waveform)
+    if use_mel:
+        transformed = mel(waveform.to(device))
     # model = FC_Net(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
     model = CNN_TD(num_classes=len(labels))
+    # model = SpinalVGG(num_classes=len(labels))
     # model = BCResNet(output_size=len(labels))
 
 elif model_base == '1D':
@@ -174,7 +196,7 @@ elif model_base == '1D':
 # elif model_base == 'wavelet':
 #     from pytorch_wavelets import DWT1DForward, DWT1DInverse
 #     dwt = DWT1DForward(wave='db1', J=3).to(device)
-#     transformed = dwt(waveform.unsqueeze(0).cuda())
+#     transformed = dwt(waveform.unsqueeze(0).to(device))
 #     catted = torch.cat(transformed[1], axis=-1)
 #     model = sample_NET(n_input=1, n_output=len(labels), batch_size=batch_size)
 
@@ -182,13 +204,13 @@ model.to(device)
 model.train()
 n = count_parameters(model)
 print("Number of parameters: %s" % n)
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
+optimizer = optim.AdamW(model.parameters(), lr=0.0001)
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1000, gamma=0.1)
 
-freq_masking = T.FrequencyMasking(freq_mask_param=5)
-time_masking = T.TimeMasking(time_mask_param=3)
+freq_masking = T.FrequencyMasking(freq_mask_param=10)
+time_masking = T.TimeMasking(time_mask_param=1)
 
-def train(model, epoch, log_interval):
+def train(model, epoch, log_interval, scheduler):
     pbar = tqdm(train_loader)
     model.train()
     correct = 0
@@ -214,15 +236,16 @@ def train(model, epoch, log_interval):
         pred = get_likely_index(output)
         correct += number_of_correct(pred, target)
         l2_lambda = 0.001
-        l2_reg = torch.tensor(0.).cuda()
+        l2_reg = torch.tensor(0.).to(device)
         for param in model.parameters():
             l2_reg += torch.norm(param)
-            loss = F.nll_loss(output, target)
+        loss = F.nll_loss(output, target)
         loss += l2_lambda * l2_reg
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        scheduler.step()
         # # print training stats
         # if batch_idx % log_interval == 0:
         #     print(f"\nTrain Epoch: {epoch} [{batch_idx * len(data)}/{len(train_indices))} ({100. * batch_idx / len(train_indices):.0f}%)]\tLoss: {loss.item():.6f}")
@@ -290,7 +313,7 @@ with tqdm(total=n_epoch) as pbar:
     target = 0
     pred = 0
     for epoch in range(1, n_epoch + 1):
-        loss_train, accuracy_train = train(model, epoch, log_interval)
+        loss_train, accuracy_train = train(model, epoch, log_interval, scheduler)
         loss_test, accuracy_test, total_pred, total_target = test(model, epoch, test_loader)
         if max_acc < accuracy_test:
             max_acc = accuracy_test
@@ -306,8 +329,7 @@ with tqdm(total=n_epoch) as pbar:
         writer.add_scalar('Loss/test',loss_test, epoch)
         writer.add_scalar('Accuracy/train', accuracy_train, epoch)
         writer.add_scalar('Accuracy/test', accuracy_test, epoch)
-        scheduler.step()
-
+ 
 print(f'\n Max Test Accuracy is {max_acc} when epoch is {max_epoch}') 
 target = target.cpu().numpy()
 pred = pred.cpu().numpy()
@@ -317,4 +339,6 @@ confusion = confusion_matrix(target, pred)
 df_cm = pd.DataFrame(confusion, index=dataset.labels, columns=dataset.labels)
 sn.set(font_scale=1.4) # for label size
 sn.heatmap(df_cm, annot=True, annot_kws={"size": 16}) # font size
+from datetime import datetime
+plt.savefig(f'./{args.save_path}/{args.path}_{args.model}_{args.mode}_{args.split_mode}_{datetime.now().hour}_{datetime.now().minute}_{number}_{max_acc}.png')
 plt.show()
