@@ -4,6 +4,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn import svm, datasets
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix
+from sklearn.utils.multiclass import unique_labels
+
+
 def label_to_index(labels, word):
     return torch.tensor(labels.index(word))
 
@@ -42,3 +52,4 @@ def number_of_correct(pred, target):
 def get_likely_index(tensor):
     # find most likely label index for each element in the batch
     return tensor.argmax(dim=-1)
+

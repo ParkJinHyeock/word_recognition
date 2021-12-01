@@ -432,11 +432,11 @@ class BCResNet(torch.nn.Module):
         return out
 
 class MarbleNet(nn.Module):
-  def __init__(self, num_classes, C=128):
+  def __init__(self, num_classes, C=130):
     super(MarbleNet, self).__init__()
     dropout = 0
     self.prologue = nn.Sequential(
-      nn.Conv1d(64, C, groups=64, kernel_size=11, padding='same', bias=False),
+      nn.Conv1d(65, C, groups=65, kernel_size=11, padding='same', bias=False),
       nn.BatchNorm1d(C),
       nn.ReLU(inplace=True)
     )
@@ -535,7 +535,7 @@ class MarbleNet(nn.Module):
     )
 
     self.epi3 = nn.Conv1d(C, num_classes, kernel_size=1, bias=True)
-    self.sigmoid = nn.Softmax()
+    self.sigmoid = nn.LogSoftmax(dim=-2)
 
   def forward(self, input):
     input = torch.squeeze(input)
@@ -564,7 +564,7 @@ class MarbleNet(nn.Module):
     x = torch.mean(x, dim=2, keepdim=True)
     x = self.epi3(x)
     x = self.sigmoid(x)
-    x = torch.squeeze(x, 1)
+    x = torch.squeeze(x, -1)
     return x
 
 
@@ -577,10 +577,10 @@ class CNN_TD(nn.Module):
     self.ConvMPBlock_1 = self.ConvMPBlock(num_conv=2, fsize=fsize, in_channel=1)
     self.ConvMPBlock_2 = self.ConvMPBlock(num_conv=2, fsize=2*fsize, in_channel=fsize)
     self.ConvMPBlock_3 = self.ConvMPBlock(num_conv=3, fsize=4*fsize, in_channel=fsize*2)    
-    self.linear_1 = nn.Linear(1536, td_dim)
+    self.linear_1 = nn.Linear(768, td_dim)
     self.linear_2 = nn.Sequential(nn.Linear(td_dim, 128), nn.BatchNorm1d(128), nn.ReLU())
     self.linear_3 = nn.Sequential(nn.Linear(128, 64), nn.BatchNorm1d(64), nn.ReLU())
-    self.linear_4 = nn.Sequential(nn.Linear(64, num_classes), nn.Softmax())
+    self.linear_4 = nn.Sequential(nn.Linear(64, num_classes), nn.LogSoftmax())
 
   def ConvMPBlock(self, num_conv=2, fsize=32,  in_channel=None, kernel_size=3, pool_size=(2,2), strides=(2,2), BN=True, DO=True, MP=True):
       mod_list = []

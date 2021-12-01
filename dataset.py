@@ -47,9 +47,9 @@ class small_dataset(Dataset):
             x_list = sorted(glob(item_dir + '/*.wav'))
             y_list = [item]*len(x_list)
             for x, y in zip(x_list, y_list):
-                if y not in ['play', 'fast']:
-                    if x.split('_')[-1].split('.')[0] not in  ['noise', 'run']:
-                    # if int(x.split('_')[-2]) < 20:
+                # if int(x.split('_')[-2]) < 5:
+                if self.mode == 'human':
+                    if x.split('_')[-1] not in ['noise.wav']:
                         if count == 0:
                             audio = torchaudio.load(x)[0]
                             self.x = (audio - torch.mean(audio)) / torch.std(torch.abs(audio))
@@ -69,6 +69,26 @@ class small_dataset(Dataset):
                             elif self.mode == 'word':
                                 self.y = self.y + [y]
                         count += 1
+                else:
+                    if count == 0:
+                        audio = torchaudio.load(x)[0]
+                        self.x = (audio - torch.mean(audio)) / torch.std(torch.abs(audio))
+                    else:
+                        try:
+                            audio = torchaudio.load(x)[0]
+                            self.x = torch.vstack((self.x, (audio - torch.mean(audio)) / torch.std(torch.abs(audio))))
+                        except:
+                            continue
+                        
+                    if self.split_mode != 'random':
+                        self.y = self.y + [(y, x.split('_')[-1].split('.')[0])]
+
+                    else:
+                        if self.mode == 'human':
+                            self.y = self.y + [x.split('_')[-1].split('.')[0]]
+                        elif self.mode == 'word':
+                            self.y = self.y + [y]
+                    count += 1
 
         self.labels = sorted(list(set(data for data in self.y)))
         self.sr = torchaudio.load(x)[1]
@@ -82,8 +102,8 @@ class small_dataset(Dataset):
         # self.x = torch.tensor(self.x, dtype=torch.float32)
         self.x = self.resample(self.x)
         self.transforms_aug = [
-            RandomApply([Noise(min_snr=0.1, max_snr=1)], p=1),
-            RandomApply([Gain(min_gain=-10, max_gain=10)], p=1),
+            RandomApply([Noise(min_snr=0.1, max_snr=0.5)], p=0.5),
+            RandomApply([Gain(min_gain=-5, max_gain=5)], p=0.5),
         ]
         self.transform_aug = Compose(transforms= self.transforms_aug)
 
@@ -112,3 +132,4 @@ class small_dataset(Dataset):
     def to_index(self):
         self.y = [label_to_index(self.labels, item) for item in self.y]
         return self.labels
+
