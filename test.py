@@ -8,22 +8,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchaudio
 
-from torch.utils.data.sampler import SubsetRandomSampler
-from torch.utils.tensorboard import SummaryWriter
-
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-from torchaudio.datasets import SPEECHCOMMANDS
 import os
 from dataset import SubsetSC, small_dataset
 from models import *
 from utils import *
 import argparse
 import matplotlib.pyplot as plt
-# from sklearn.metrics import plot_confusion_matrix
-from sklearn.metrics import confusion_matrix
-from sklearn.model_selection import train_test_split
-import torchaudio.transforms as T
 
 def get_audio(path):
     audio, sr = torchaudio.load(path)
