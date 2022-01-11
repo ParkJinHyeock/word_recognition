@@ -560,7 +560,7 @@ class MarbleNet(nn.Module):
     x = self.sub22(x)
 
     x = self.epi1(x)
-    x = self.epi2(x)
+    # x = self.epi2(x)
     x = torch.mean(x, dim=2, keepdim=True)
     x = self.epi3(x)
     x = self.sigmoid(x)

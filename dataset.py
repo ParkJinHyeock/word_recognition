@@ -70,6 +70,7 @@ class small_dataset(Dataset):
                                 self.y = self.y + [y]
                         count += 1
                 else:
+                    # if x.split('_')[-1] not in ['micnoise.wav']:
                     if count == 0:
                         audio = torchaudio.load(x)[0]
                         self.x = (audio - torch.mean(audio)) / torch.std(torch.abs(audio))
@@ -102,8 +103,8 @@ class small_dataset(Dataset):
         # self.x = torch.tensor(self.x, dtype=torch.float32)
         self.x = self.resample(self.x)
         self.transforms_aug = [
-            RandomApply([Noise(min_snr=0.1, max_snr=0.5)], p=0.5),
-            RandomApply([Gain(min_gain=-5, max_gain=5)], p=0.5),
+            RandomApply([Noise(min_snr=0.1, max_snr=0.5)], p=0),
+            RandomApply([Gain(min_gain=-5, max_gain=5)], p=0),
         ]
         self.transform_aug = Compose(transforms= self.transforms_aug)
 

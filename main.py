@@ -126,8 +126,8 @@ else:
                     train_indices.append(i)
         else:
             human_list = sorted(list(set([item[1] for item in label_list])))
-            # pick = [human_list[number]]
-            pick  = [human_list[number], human_list[number+1]]     
+            pick = [human_list[number]]
+            # pick  = [human_list[number], human_list[number+1]]     
             print(f'picked_human is {pick}')
             for i, item in enumerate(label_list):
                 if item[1] in pick:
@@ -211,18 +211,12 @@ if model_base == '2D':
 elif model_base == '1D':
     model = sample_NET(n_input=waveform.shape[0], n_output=len(labels), batch_size=batch_size)
 
-# elif model_base == 'wavelet':
-#     from pytorch_wavelets import DWT1DForward, DWT1DInverse
-#     dwt = DWT1DForward(wave='db1', J=3).to(device)
-#     transformed = dwt(waveform.unsqueeze(0).to(device))
-#     catted = torch.cat(transformed[1], axis=-1)
-#     model = sample_NET(n_input=1, n_output=len(labels), batch_size=batch_size)
 
 model.to(device)
 model.train()
 n = count_parameters(model)
 print("Number of parameters: %s" % n)
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
 scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.1)
 
 freq_masking = T.FrequencyMasking(freq_mask_param=5)
@@ -246,9 +240,6 @@ def train(model, epoch, log_interval, scheduler):
             # data = freq_masking(data)
             # data = time_masking(data)
 
-        elif model_base == 'wavelet':
-            data = dwt(data)
-            data = torch.cat(data[1], axis=-1)
         output = model(data)
         pred = get_likely_index(output)
         correct += number_of_correct(pred, target)
@@ -262,10 +253,6 @@ def train(model, epoch, log_interval, scheduler):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # # print training stats
-        # if batch_idx % log_interval == 0:
-        #     print(f"\nTrain Epoch: {epoch} [{batch_idx * len(data)}/{len(train_indices))} ({100. * batch_idx / len(train_indices):.0f}%)]\tLoss: {loss.item():.6f}")
-
         # update progress bar
         pbar.update(pbar_update)
         # record loss
@@ -296,9 +283,7 @@ def test(model, epoch, test_loader_):
                 data = mel(data)
             # data = (data - m)/s
 
-        elif model_base == 'wavelet':
-            data = dwt(data)
-            data = torch.cat(data[1], axis=-1)
+
 
         output = model(data)    
         pred = get_likely_index(output)
@@ -375,9 +360,12 @@ if is_save:
 confusion = confusion_matrix(target, pred)
 confusion = np.round(confusion / np.sum(confusion, axis=1), decimals=2)
 df_cm = pd.DataFrame(confusion, index=dataset.labels, columns=dataset.labels)
+df_cm.to_csv('./word.csv')
+
 # sn.set(font_scale=1.4) # for label size
-# sn.heatmap(df_cm, cmap='pink_r')
-sn.heatmap(df_cm, annot=True, cmap = plt.cm.Blues, annot_kws={"size": 10}, fmt=".2f") # font size
+sn.heatmap(df_cm, cmap='pink_r')
+plt.rcParams.update({'font.family':'Arial'})
+# sn.heatmap(df_cm, annot=True, cmap = plt.cm.Blues, annot_kws={"size": 11}, fmt=".2f") # font size
 from datetime import datetime
 plt.tight_layout() 
 plt.savefig(f'./{args.save_path}/{args.path}_{args.model}_{args.mode}_{args.split_mode}_{datetime.now().hour}_{datetime.now().minute}_{number}_{max_acc}.png', dpi=400)
