@@ -107,13 +107,14 @@ class sample_NET(nn.Module):
 
         self.weight = None
         self.flat = nn.Flatten()
-        self.drop1 = nn.Dropout2d(p=0.1)
-        self.drop2 = nn.Dropout2d(p=0.1)
+        self.drop1 = nn.Dropout(p=0.2)
+        self.drop2 = nn.Dropout(p=0.2)
         self.drop3 = nn.Dropout(p=0.2)
         self.batch = batch_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.linear_1 = torch.nn.Linear(n_output, 3*n_output)
         self.linear_2 = torch.nn.Linear(3*n_output, n_output)
+        self.linear_3 = torch.nn.LazyLinear(self.output)
 
     def forward(self, x):
 
@@ -123,7 +124,6 @@ class sample_NET(nn.Module):
         x = self.conv2(x)
         x = F.relu(self.bn2(x))
         x = self.pool2(x)
-        x = self.drop1(x)
 
         x = self.conv3(x)
         x = F.relu(self.bn3(x))
@@ -141,9 +141,10 @@ class sample_NET(nn.Module):
 
         x = self.flat(x)
 
-        if self.weight is None:
-           self.weight = nn.Parameter(torch.randn(self.output, x.size()[1])).to(self.device)
-        x = F.linear(x, self.weight)
+        # if self.weight is None:
+        #    self.weight = nn.Parameter(torch.randn(self.output, x.size()[1])).to(self.device)
+        # x = F.linear(x, self.weight)
+        x = self.linear_3(x)
 
         return F.log_softmax(x, dim=1)
 
@@ -206,19 +207,19 @@ class SpinalVGG(nn.Module):
         Half_width =128
         layer_width =128
         self.fc_spinal_layer1 = nn.Sequential(
-            nn.Dropout(p = 0.5), nn.Linear(Half_width, layer_width),
+            nn.Dropout(p = 0.2), nn.Linear(Half_width, layer_width),
             nn.BatchNorm1d(layer_width), nn.ReLU(inplace=True),)
         self.fc_spinal_layer2 = nn.Sequential(
-            nn.Dropout(p = 0.5), nn.Linear(Half_width+layer_width, layer_width),
+            nn.Dropout(p = 0.2), nn.Linear(Half_width+layer_width, layer_width),
             nn.BatchNorm1d(layer_width), nn.ReLU(inplace=True),)
         self.fc_spinal_layer3 = nn.Sequential(
-            nn.Dropout(p = 0.5), nn.Linear(Half_width+layer_width, layer_width),
+            nn.Dropout(p = 0.2), nn.Linear(Half_width+layer_width, layer_width),
             nn.BatchNorm1d(layer_width), nn.ReLU(inplace=True),)
         self.fc_spinal_layer4 = nn.Sequential(
-            nn.Dropout(p = 0.5), nn.Linear(Half_width+layer_width, layer_width),
+            nn.Dropout(p = 0.2), nn.Linear(Half_width+layer_width, layer_width),
             nn.BatchNorm1d(layer_width), nn.ReLU(inplace=True),)
         self.fc_out = nn.Sequential(
-            nn.Dropout(p = 0.5), nn.Linear(layer_width*4, num_classes),)
+            nn.Dropout(p = 0.2), nn.Linear(layer_width*4, num_classes),)
         
     
     def forward(self, x):
@@ -434,7 +435,7 @@ class BCResNet(torch.nn.Module):
 class MarbleNet(nn.Module):
   def __init__(self, num_classes, C=130):
     super(MarbleNet, self).__init__()
-    dropout = 0
+    dropout = 0.2
     self.prologue = nn.Sequential(
       nn.Conv1d(65, C, groups=65, kernel_size=11, padding='same', bias=False),
       nn.BatchNorm1d(C),
@@ -539,6 +540,8 @@ class MarbleNet(nn.Module):
 
   def forward(self, input):
     input = torch.squeeze(input)
+    if len(input.size()) == 2:
+      input = torch.unsqueeze(input, 0)
     x = self.prologue(input)
     x_ = self.sub0C(x)
     x = self.sub00(x)
@@ -592,7 +595,7 @@ class CNN_TD(nn.Module):
         if BN:
           mod_list.append(nn.BatchNorm2d(fsize))
         if DO:
-          mod_list.append(nn.Dropout(0))
+          mod_list.append(nn.Dropout(0.1))
         mod_list.append(nn.ReLU())
       if MP:
         mod_list.append(nn.MaxPool2d(kernel_size=pool_size, stride=strides))
