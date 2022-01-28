@@ -52,7 +52,7 @@ def seed_worker(_worker_id):
     np.random.seed(worker_seed)
     random.seed(worker_seed)
     
-seed_all(seed=216)
+seed_all(seed=123)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='2D')
@@ -109,12 +109,13 @@ else:
         label_list = [item[1][1] for item in dataset]
     elif split_mode == 'word':
         label_list = [item[1][0] for item in dataset]
-    elif split_mode == 'human_word' or split_mode == 'cross' or split_mode == 'huristic_cross':
+    elif split_mode == 'human_word' or split_mode == 'cross' or split_mode == 'huristic_cross' or split_mode == 'new_huristic_cross':
         label_list = [item[1] for item in dataset]
     if 'cross' not in split_mode:
         splited = train_test_split(indices, label_list, test_size=validation_split, stratify=label_list)
         train_indices = splited[0]
         val_indices = splited[1]
+
     elif split_mode == 'huristic_cross':
         if mode == 'human':
             word_list = sorted(list(set([item[0] for item in label_list])))
@@ -127,7 +128,7 @@ else:
         else:
             human_list = sorted(list(set([item[1] for item in label_list])))
             pick = [human_list[number]]
-            # pick  = [human_list[number], human_list[number+1]]     
+            # pick  = [human_list[number], human_list[number-1], human_list[number-2]]     
             print(f'picked_human is {pick}')
             for i, item in enumerate(label_list):
                 if item[1] in pick:
@@ -137,6 +138,36 @@ else:
             if seen:
                 train_indices = train_indices + val_indices[::5]
                 val_indices  = sorted(list(set(val_indices) - set(val_indices[::5])))
+
+    elif split_mode == 'new_huristic_cross':
+        if mode == 'human':
+            word_list = sorted(list(set([item[0] for item in label_list])))
+            pick = word_list[number]
+            for i, item in enumerate(label_list):
+                if item[0] in pick:
+                    val_indices.append(i)
+                else:
+                    train_indices.append(i)
+
+        else:
+            human_list = sorted(list(set([item[1] for item in label_list])))
+            pick = [human_list[number], human_list[number-1], human_list[number-2]]
+            print(f'picked_human is {pick}')
+            temp_indices = []
+            temp_label_list = []
+            train_2_indices = []
+            
+            for i, item in enumerate(label_list):
+                if item[1] in pick:
+                    train_2_indices.append(i)
+                else:
+                    temp_indices.append(i)
+                    temp_label_list.append(item[0])
+            splited = train_test_split(temp_indices, temp_label_list, test_size=validation_split, stratify=temp_label_list)
+            train_indices = splited[0]
+            val_indices = splited[1]
+            if seen:
+                train_indices = train_indices + train_2_indices[::6] + train_2_indices[1::6] + train_2_indices[2::6]
     else:
         if mode == 'human':
             word_list = sorted(list(set([item[0] for item in label_list])))
@@ -158,14 +189,17 @@ else:
     dataset_test.remove()
 labels = dataset.to_index()
 labels_test = dataset_test.to_index()
+
+
 print(labels)
 train_sampler = SubsetRandomSampler(train_indices)
-
 valid_sampler = SubsetRandomSampler(val_indices[::2])
 test_sampler = SubsetRandomSampler(val_indices[1::2])
 
-batch_size = 30
+batch_size = 10
 train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=True,
+                                           collate_fn=collate_fn, sampler=train_sampler, num_workers=0, worker_init_fn=seed_worker)
+train_mean_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, drop_last=False,
                                            collate_fn=collate_fn, sampler=train_sampler, num_workers=0, worker_init_fn=seed_worker)
 test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=False, drop_last=False,
                                            collate_fn=collate_fn, sampler=valid_sampler, num_workers=0, worker_init_fn=seed_worker)
@@ -183,20 +217,23 @@ if model_base == '2D':
     db = torchaudio.transforms.AmplitudeToDB()
     if use_mel:
         mel = torchaudio.transforms.MelScale(n_mels=65, sample_rate=new_sample_rate).to(device)
-        m = mel(db(spec(data[0].to(device)))).mean(axis=0)
-        s = mel(db(spec(data[0].to(device)))).std(axis=0)
-        
-        # mel = torchaudio.transforms.MFCC(sample_rate=1000, n_mfcc=20).to(device)
-        # m = mel(data[0].to(device)).mean(axis=0)
-        # s = mel(data[0].to(device)).std(axis=0)
+        m = 0
+        s = 0
+        for item in train_mean_loader:
+            m += mel(db(spec(item[0].to(device))).mean(axis=0))
+            s += mel(db(spec(item[0].to(device))).std(axis=0))
+        m = m / len(dataset_test)
+        s = s / len(dataset_test)        
+
     else:
         m = 0
         s = 0
-        for item in train_loader:
-            m += db(spec(item[0].to(device))).mean(axis=0)
-            s += db(spec(item[0].to(device))).std(axis=0)
+        for item in train_mean_loader:
+            m += torch.log(spec(item[0].to(device))).mean(axis=(0))
+            s += torch.log(spec(item[0].to(device))).std(axis=(0))
         m = m / len(dataset)
         s = s / len(dataset)
+
     # model = FC_Net(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
     if mode == 'word':
         if model_type == 'CNN_TD':
@@ -220,15 +257,17 @@ elif model_base == '1D':
 
 model.to(device)
 model.train()
-# n = count_parameters(model)
-# print("Number of parameters: %s" % n)
+
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
-n_epoch = 40
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epoch)
+if args.mode == 'human':
+    n_epoch = 40
+else:
+    n_epoch = 80
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.7)
 
 freq_masking = T.FrequencyMasking(freq_mask_param=10)
 time_masking = T.TimeMasking(time_mask_param=5)
-
+deltas = torchaudio.transforms.ComputeDeltas()
 def train(model, epoch, log_interval, scheduler):
     pbar = tqdm(train_loader)
     model.train()
@@ -240,10 +279,14 @@ def train(model, epoch, log_interval, scheduler):
 
         if model_base =='2D':
             data = spec(data)
-            data = db(data)
+            # data = db(data)
             if use_mel:
                 data = mel(data)
-            data = (data - m)/s
+            data = torch.log(data + 1e-8)
+            # m = data.mean(axis=(0,1), keepdims=True)
+            # s = data.mean(axis=(0,1), keepdims=True)
+            data = data + torch.randn([], device=device)*0.5 - 1/4 
+            # data = (data - m)/s
             data = freq_masking(data)
             data = time_masking(data)
 
@@ -285,10 +328,13 @@ def test(model, epoch, test_loader_):
 
         if model_base == '2D':
             data = spec(data)
-            data = db(data)
+            # data = db(data)
             if use_mel:
                 data = mel(data)
-            data = (data - m)/s
+            data = torch.log(data + 1e-8)
+            # m = data.mean(axis=(0,1), keepdims=True)
+            # s = data.mean(axis=(0,1), keepdims=True)
+            # data = (data - m)/s
 
         output = model(data)    
         pred = get_likely_index(output)
@@ -306,10 +352,10 @@ def test(model, epoch, test_loader_):
 
 log_interval = 300
 pbar_update = 1 / (len(train_loader) + len(test_loader))
-if is_save:
-    torch.save(model.state_dict(), f'./saved_model/{mode}_{model_base}_{model_type}.pth')
+# if is_save:
+#     torch.save(model.state_dict(), f'./saved_model/{mode}_{model_base}_{model_type}noise.pth')
 # The transform needs to live on the same device as the model and the data.
-max_patient = 40
+max_patient = 80
 writer = SummaryWriter(log_dir=mode, filename_suffix=f'{model_base}_{model_type}')
 import copy
 with tqdm(total=n_epoch) as pbar:
@@ -321,6 +367,7 @@ with tqdm(total=n_epoch) as pbar:
     for epoch in range(1, n_epoch + 1):
         loss_train, accuracy_train = train(model, epoch, log_interval, scheduler)
         loss_test, accuracy_test, total_pred, total_target = test(model, epoch, test_loader)
+
         if max_acc < accuracy_test:
             max_acc = accuracy_test
             early_count = 0
@@ -333,14 +380,15 @@ with tqdm(total=n_epoch) as pbar:
             early_count += 1
             if early_count == max_patient:
                 break
+        # _, _, _, _ =  test(best_model, epoch, real_test_loader)
         print(epoch)
         writer.add_scalar(f'Loss/train', loss_train, global_step=epoch)
         writer.add_scalar(f'Loss/test',loss_test, global_step=epoch)
         writer.add_scalar(f'Accuracy/train', accuracy_train, global_step=epoch)
         writer.add_scalar(f'Accuracy/test', accuracy_test, global_step=epoch)
-        # scheduler.step()
+        scheduler.step()
 
-loss_test, accuracy_test, total_pred, total_target =  test(model, epoch, real_test_loader)
+loss_test, accuracy_test, total_pred, total_target =  test(best_model, epoch, real_test_loader)
 print(f'\n Max Test Accuracy is {accuracy_test} when epoch is {max_epoch}') 
 target = total_target.cpu().numpy()
 pred = total_pred.cpu().numpy()
@@ -361,8 +409,10 @@ import pandas as pd
 writer.flush()
 writer.close()
 if is_save:
-    torch.save(model.state_dict(), f'./saved_model/{mode}_{model_base}_{model_type}.pth')
-
+    try:
+        torch.save(best_model.state_dict(), f'./saved_model/{mode}_{model_base}_{model_type}_{pick[0]}_mic_2.pth')
+    except:
+        torch.save(best_model.state_dict(), f'./saved_model/{mode}_{model_base}_{model_type}_mic_2.pth')
 
 confusion = confusion_matrix(target, pred)
 confusion = np.round(confusion / np.sum(confusion, axis=1), decimals=2)

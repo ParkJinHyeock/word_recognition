@@ -77,11 +77,10 @@ class FC_Net(nn.Module):
 
 
 class sample_NET(nn.Module):
-    def __init__(self, n_input=1, n_output=35, stride=16, n_channel=64, batch_size=32):
+    def __init__(self, n_input=1, n_output=35, stride=1, n_channel=64, batch_size=32):
         super().__init__()
-        self.n_channel = 128
+        self.n_channel = 16
         self.output = n_output
-
         self.conv1 = nn.Conv1d(n_input, n_channel, kernel_size=3, stride=3)
         self.bn1 = nn.BatchNorm1d(n_channel)
 
@@ -108,8 +107,11 @@ class sample_NET(nn.Module):
         self.weight = None
         self.flat = nn.Flatten()
         self.drop1 = nn.Dropout(p=0.2)
-        self.drop2 = nn.Dropout(p=0.2)
+        self.drop2 = nn.Dropout(p=0)
         self.drop3 = nn.Dropout(p=0.2)
+        self.drop4 = nn.Dropout(p=0)
+        self.drop5 = nn.Dropout(p=0.2)
+        
         self.batch = batch_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.linear_1 = torch.nn.Linear(n_output, 3*n_output)
@@ -117,27 +119,33 @@ class sample_NET(nn.Module):
         self.linear_3 = torch.nn.LazyLinear(self.output)
 
     def forward(self, x):
-
         x = self.conv1(x)
         x = F.relu(self.bn1(x))
 
         x = self.conv2(x)
         x = F.relu(self.bn2(x))
         x = self.pool2(x)
+        x = self.drop1(x)
 
         x = self.conv3(x)
         x = F.relu(self.bn3(x))
         x = self.pool3(x)
-
+        x = self.drop2(x)
 
         x = self.conv4(x)
         x = F.relu(self.bn4(x))
         x = self.pool4(x)
-        x = self.drop2(x)
+        x = self.drop3(x)
 
         x = self.conv5(x)
         x = F.relu(self.bn5(x))
         x = self.pool5(x)
+        x = self.drop4(x)
+
+        # x = self.conv6(x)
+        # x = F.relu(self.bn5(x))
+        # x = self.pool6(x)
+        # x = self.drop4(x)
 
         x = self.flat(x)
 
@@ -341,7 +349,7 @@ class TransitionBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.channel_drop = nn.Dropout2d(p=0.5)
-        self.swish = nn.SiLU()
+        self.swish = nn.ReLU()
         self.conv1x1_1 = nn.Conv2d(inplanes, planes, kernel_size=(1, 1), bias=False)
         self.conv1x1_2 = nn.Conv2d(planes, planes, kernel_size=(1, 1), bias=False)
 
@@ -448,16 +456,23 @@ class MarbleNet(nn.Module):
       nn.BatchNorm1d(C//2),
       nn.ReLU(inplace=True),
       nn.Dropout(dropout),
+
+      nn.Conv1d(C//2, C//2, kernel_size=13, groups=C//2, padding='same', bias=False),
+      nn.Conv1d(C//2, C//2, kernel_size=1,padding='same', bias=False),
+      nn.BatchNorm1d(C//2),
+      nn.ReLU(inplace=True),
+      nn.Dropout(dropout),
+
       nn.Conv1d(C//2, C//2, kernel_size=13, groups=C//2, padding='same', bias=False),
       nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C//2),
     )
 
-    self.sub01 = nn.Sequential(
-      nn.Conv1d(C//2, C//2, kernel_size=13, groups=C//2, padding='same', bias=False),
-      nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
-      nn.BatchNorm1d(C//2)
-    )
+    # self.sub01 = nn.Sequential(
+    #   nn.Conv1d(C//2, C//2, kernel_size=13, groups=C//2, padding='same', bias=False),
+    #   nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
+    #   nn.BatchNorm1d(C//2)
+    # )
 
     self.sub02 = nn.Sequential(
       nn.ReLU(inplace=True),
@@ -475,16 +490,23 @@ class MarbleNet(nn.Module):
       nn.BatchNorm1d(C//2),
       nn.ReLU(inplace=True),
       nn.Dropout(dropout),
+
+      nn.Conv1d(C//2, C//2, kernel_size=15, groups=C//2, padding='same', bias=False),
+      nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
+      nn.BatchNorm1d(C//2),
+      nn.ReLU(inplace=True),
+      nn.Dropout(dropout),
+
       nn.Conv1d(C//2, C//2, kernel_size=15, groups=C//2, padding='same', bias=False),
       nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C//2),
     )
 
-    self.sub11 = nn.Sequential(
-      nn.Conv1d(C//2, C//2, kernel_size=15, groups=C//2, padding='same', bias=False), 
-      nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
-      nn.BatchNorm1d(C//2)
-    )
+    # self.sub11 = nn.Sequential(
+    #   nn.Conv1d(C//2, C//2, kernel_size=15, groups=C//2, padding='same', bias=False), 
+    #   nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
+    #   nn.BatchNorm1d(C//2)
+    # )
 
     self.sub12 = nn.Sequential(
       nn.ReLU(inplace=True),
@@ -502,16 +524,24 @@ class MarbleNet(nn.Module):
       nn.BatchNorm1d(C//2),
       nn.ReLU(inplace=True),
       nn.Dropout(dropout),
+
+      nn.Conv1d(C//2, C//2, kernel_size=17, groups=C//2, padding='same', bias=False),
+      nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
+      nn.BatchNorm1d(C//2),
+      nn.ReLU(inplace=True),
+      nn.Dropout(dropout),
+
+
       nn.Conv1d(C//2, C//2, kernel_size=17, groups=C//2, padding='same', bias=False),
       nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C//2),
     )
 
-    self.sub21 = nn.Sequential(
-      nn.Conv1d(C//2, C//2, kernel_size=17, groups=C//2, padding='same', bias=False),
-      nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
-      nn.BatchNorm1d(C//2)
-    )
+    # self.sub21 = nn.Sequential(
+    #   nn.Conv1d(C//2, C//2, kernel_size=17, groups=C//2, padding='same', bias=False),
+    #   nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
+    #   nn.BatchNorm1d(C//2)
+    # )
 
     self.sub22 = nn.Sequential(
       nn.ReLU(inplace=True),
@@ -545,25 +575,25 @@ class MarbleNet(nn.Module):
     x = self.prologue(input)
     x_ = self.sub0C(x)
     x = self.sub00(x)
-    x = self.sub01(x)
+    # x = self.sub01(x)
     
     x = x + x_
     x = self.sub02(x)
 
     x_ = self.sub1C(x)
     x = self.sub10(x)
-    x = self.sub11(x)
+    # x = self.sub11(x)
     x = x + x_
     x = self.sub12(x)
 
     x_ = self.sub2C(x)
     x = self.sub20(x)
-    x = self.sub21(x)
+    # x = self.sub21(x)
     x = x + x_
     x = self.sub22(x)
 
     x = self.epi1(x)
-    # x = self.epi2(x)
+    x = self.epi2(x)
     x = torch.mean(x, dim=2, keepdim=True)
     x = self.epi3(x)
     x = self.sigmoid(x)
@@ -595,7 +625,7 @@ class CNN_TD(nn.Module):
         if BN:
           mod_list.append(nn.BatchNorm2d(fsize))
         if DO:
-          mod_list.append(nn.Dropout(0.1))
+          mod_list.append(nn.Dropout(0))
         mod_list.append(nn.ReLU())
       if MP:
         mod_list.append(nn.MaxPool2d(kernel_size=pool_size, stride=strides))

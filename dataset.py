@@ -11,7 +11,8 @@ from scipy import signal
 import numpy as np
 import pywt
 from skimage.restoration import denoise_wavelet
-
+import random
+from audiomentations import *
 
 class SubsetSC(SPEECHCOMMANDS):
     def __init__(self, subset: str = None):
@@ -42,75 +43,53 @@ class small_dataset(Dataset):
         self.mode = mode
         self.split_mode = split_mode
         count = 0
+        self.temp = []
         for item in self.class_list:
             item_dir = os.path.join(self.root_dir, item)
             x_list = sorted(glob(item_dir + '/*.wav'))
             y_list = [item]*len(x_list)
             for x, y in zip(x_list, y_list):
-                if int(x.split('_')[-2]) < 10:
-                    if self.mode == 'human':
-                        if x.split('_')[-1] not in ['noise.wav']:
-                            if count == 0:
-                                audio = torchaudio.load(x)[0]
-                                self.x = (audio - torch.mean(audio)) / torch.std(torch.abs(audio))
-                            else:
-                                audio = torchaudio.load(x)[0]
-                                self.x = torch.vstack((self.x, (audio - torch.mean(audio)) / torch.std(torch.abs(audio))))
-                                
-                            if self.split_mode != 'random':
-                                self.y = self.y + [(y, x.split('_')[-1].split('.')[0])]
-
-                            else:
-                                if self.mode == 'human':
-                                    self.y = self.y + [x.split('_')[-1].split('.')[0]]
-                                elif self.mode == 'word':
-                                    self.y = self.y + [y]
-                            count += 1
-                    else:
-                        # if x.split('_')[-1] not in ['noisenew.wav']:
+                if x.split('_')[-1] not in ['noisenew.wav']:
+                    if int(x.split('_')[-2]) < 10:
                         if count == 0:
                             audio = torchaudio.load(x)[0]
-                            self.x = (audio - torch.mean(audio)) / torch.std(torch.abs(audio))
+                            self.x = (audio - torch.mean(audio)) / torch.std(audio)
                         else:
-                            try:
-                                audio = torchaudio.load(x)[0]
-                                self.x = torch.vstack((self.x, (audio - torch.mean(audio)) / torch.std(torch.abs(audio))))
-                            except:
-                                import pdb; pdb.set_trace()
-                                print(len(torchaudio.load(x)[0]))                        
+                            audio = torchaudio.load(x)[0]
+                            self.x = torch.vstack((self.x, (audio - torch.mean(audio)) / torch.std(audio)))
+                            
                         if self.split_mode != 'random':
                             self.y = self.y + [(y, x.split('_')[-1].split('.')[0])]
-
                         else:
                             if self.mode == 'human':
                                 self.y = self.y + [x.split('_')[-1].split('.')[0]]
                             elif self.mode == 'word':
                                 self.y = self.y + [y]
                         count += 1
+                        self.temp.append(x)
 
         self.labels = sorted(list(set(data for data in self.y)))
         self.sr = torchaudio.load(x)[1]
         self.new_sr = 1000
         self.resample = torchaudio.transforms.Resample(orig_freq=self.sr, new_freq=self.new_sr)
-        # self.filter = signal.butter(10, 1000, 'lp', fs=self.sr, output='sos')
-        # self.x = signal.sosfilt(self.filter, self.x)
+        # self.filter = signal.butter(100, 1000, 'lp', fs=self.sr, output='sos')
+        # self.x = signal.sosfilt(self.filter, self.x.numpy())
         # self.x = torch.tensor(self.x, dtype=torch.float32)
-        # self.x = self.x.numpy()
-        # self.x = denoise_wavelet(self.x, method='BayesShrink', mode='soft', wavelet_levels=3, wavelet='sym8',rescale_sigma='True')
-        # self.x = torch.tensor(self.x, dtype=torch.float32)
+        # self.x = self.resample(torch.from_numpy(self.x).type(torch.FloatTensor))
         self.x = self.resample(self.x)
-        self.transforms_aug = [
-            RandomApply([Noise(min_snr=0.1, max_snr=0.5)], p=0),
-            RandomApply([Gain(min_gain=-5, max_gain=5)], p=0),
-        ]
-        self.transform_aug = Compose(transforms= self.transforms_aug)
+        self.x = torchaudio.functional.highpass_biquad(self.x, 1000, 30)
+        self.transforms_aug = Compose([
+                                        Shift(min_fraction=-0.3, max_fraction=0.3, rollover=False, fade=True, p=0.5),
+                                        Gain(min_gain_in_db=-5, max_gain_in_db=5, p=0.5),
+                                    ])
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self, idx):
         if self.train:
-            return self.transform_aug(torch.reshape(self.x[idx], [1, self.x[idx].shape[0]])), self.y[idx], self.sr 
+            temp = torch.from_numpy(self.transforms_aug(self.x[idx].numpy(), 1000))
+            return torch.reshape(temp, [1, temp.shape[0]]), self.y[idx], self.sr 
         else:
             return torch.reshape(self.x[idx], [1, self.x[idx].shape[0]]), self.y[idx], self.sr
 
