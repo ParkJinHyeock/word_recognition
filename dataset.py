@@ -14,25 +14,6 @@ from skimage.restoration import denoise_wavelet
 import random
 from audiomentations import *
 
-class SubsetSC(SPEECHCOMMANDS):
-    def __init__(self, subset: str = None):
-        super().__init__("./", download=False)
-
-        def load_list(filename):
-            filepath = os.path.join(self._path, filename)
-            with open(filepath) as fileobj:
-                return [os.path.join(self._path, line.strip()) for line in fileobj]
-
-        if subset == "validation":
-            self._walker = load_list("validation_list.txt")
-        elif subset == "testing":
-            self._walker = load_list("testing_list.txt")
-        elif subset == "training":
-            excludes = load_list("validation_list.txt") + load_list("testing_list.txt")
-            excludes = set(excludes)
-            self._walker = [w for w in self._walker if w not in excludes]
-
-
 class small_dataset(Dataset):
     def __init__(self, root_dir, mode, split_mode, train):
         self.root_dir = root_dir
@@ -70,8 +51,6 @@ class small_dataset(Dataset):
         self.sr = torchaudio.load(x)[1]
         self.new_sr = 2000
         self.resample = torchaudio.transforms.Resample(orig_freq=self.sr, new_freq=self.new_sr, lowpass_filter_width=10)
-        # self.x = torch.tensor(self.x, dtype=torch.float32)
-        # self.x = self.resample(torch.from_numpy(self.x).type(torch.FloatTensor))
         self.x = self.resample(self.x)
         self.x = torchaudio.functional.highpass_biquad(self.x, self.new_sr, 30)
         self.transforms_aug = Compose([

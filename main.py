@@ -95,101 +95,88 @@ shuffle_dataset = True
 train_indices = []
 val_indices = []
 
-if split_mode == 'random':
-    indices = list(range(dataset_size))
-    split = int(np.floor(validation_split * dataset_size))
-    if shuffle_dataset:
-        np.random.shuffle(indices)
-    train_indices, val_indices = indices[split:], indices[:split]
+indices = list(range(dataset_size))
+if split_mode == 'human':
+    label_list = [item[1][1] for item in dataset]
+elif split_mode == 'word':
+    label_list = [item[1][0] for item in dataset]
+elif split_mode == 'human_word' or split_mode == 'cross' or split_mode == 'huristic_cross' or split_mode == 'new_huristic_cross':
+    label_list = [item[1] for item in dataset]
 
+if 'cross' not in split_mode:
+    splited = train_test_split(indices, label_list, test_size=validation_split, stratify=label_list)
+    train_indices = splited[0]
+    val_indices = splited[1]
 
-else:
-    indices = list(range(dataset_size))
-    if split_mode == 'human':
-        label_list = [item[1][1] for item in dataset]
-    elif split_mode == 'word':
-        label_list = [item[1][0] for item in dataset]
-    elif split_mode == 'human_word' or split_mode == 'cross' or split_mode == 'huristic_cross' or split_mode == 'new_huristic_cross':
-        label_list = [item[1] for item in dataset]
-    if 'cross' not in split_mode:
-        splited = train_test_split(indices, label_list, test_size=validation_split, stratify=label_list)
-        train_indices = splited[0]
-        val_indices = splited[1]
-
-    elif split_mode == 'huristic_cross':
-        if mode == 'human':
-            word_list = sorted(list(set([item[0] for item in label_list])))
-            pick = word_list[number]
-            for i, item in enumerate(label_list):
-                if item[0] in pick:
-                    val_indices.append(i)
-                else:
-                    train_indices.append(i)
-        else:
-            human_list = sorted(list(set([item[1] for item in label_list])))
-            pick = [human_list[number]]
-            pick  = [human_list[number], human_list[number-1], human_list[number-2]]     
-            print(f'picked_human is {pick}')
-            for i, item in enumerate(label_list):
-                if item[1] in pick:
-                    val_indices.append(i)
-                else:
-                    train_indices.append(i)
-            if seen:
-                train_indices = train_indices + val_indices[::5]
-                val_indices  = sorted(list(set(val_indices) - set(val_indices[::5])))
-
-    elif split_mode == 'new_huristic_cross':
-        if mode == 'human':
-            word_list = sorted(list(set([item[0] for item in label_list])))
-            pick = word_list[number]
-            for i, item in enumerate(label_list):
-                if item[0] in pick:
-                    val_indices.append(i)
-                else:
-                    train_indices.append(i)
-
-        else:
-            human_list = sorted(list(set([item[1] for item in label_list])))
-            pick = [human_list[number], human_list[number-1], human_list[number-2]]
-            pick = [human_list[number]]
-            print(f'picked_human is {pick}')
-            temp_indices = []
-            temp_label_list = []
-            train_2_indices = []
-            
-            for i, item in enumerate(label_list):
-                if item[1] in pick:
-                    train_2_indices.append(i)
-                else:
-                    temp_indices.append(i)
-                    temp_label_list.append(item[0])
-            splited = train_test_split(temp_indices, temp_label_list, test_size=validation_split, stratify=temp_label_list)
-            train_indices = splited[0]
-            val_indices = splited[1]
-            if seen:
-                # train_indices = train_indices + train_2_indices[::6] + train_2_indices[1::6] + train_2_indices[2::6]
-                train_indices = train_indices + train_2_indices[::2]
+elif split_mode == 'huristic_cross':
+    if mode == 'human':
+        word_list = sorted(list(set([item[0] for item in label_list])))
+        pick = word_list[number]
+        for i, item in enumerate(label_list):
+            if item[0] in pick:
+                val_indices.append(i)
+            else:
+                train_indices.append(i)
+        if seen:
+            train_indices = train_indices + val_indices[::5]
+            val_indices  = sorted(list(set(val_indices) - set(val_indices[::5])))
 
     else:
-        if mode == 'human':
-            word_list = sorted(list(set([item[0] for item in label_list])))
-            pick  = random.choices(word_list, k=int(len(word_list)*validation_split))
-            for i, item in enumerate(label_list):
-                if item[0] in pick:
-                    val_indices.append(i)
-                else:
-                    train_indices.append(i)
-        else:
-            human_list = sorted(list(set([item[1] for item in label_list])))
-            pick  = random.choices(human_list, k=int(len(human_list)*validation_split))        
-            for i, item in enumerate(label_list):
-                if item[1] in pick:
-                    val_indices.append(i)
-                else:
-                    train_indices.append(i)
-    dataset.remove()
-    dataset_test.remove()
+        human_list = sorted(list(set([item[1] for item in label_list])))
+        pick = [human_list[number]]
+        pick  = [human_list[number], human_list[number-1], human_list[number-2]]     
+        print(f'picked_human is {pick}')
+        for i, item in enumerate(label_list):
+            if item[1] in pick:
+                val_indices.append(i)
+            else:
+                train_indices.append(i)
+        if seen:
+            train_indices = train_indices + val_indices[::5]
+            val_indices  = sorted(list(set(val_indices) - set(val_indices[::5])))
+
+elif split_mode == 'new_huristic_cross':
+    if mode == 'word':
+        human_list = sorted(list(set([item[1] for item in label_list])))
+        pick = [human_list[number], human_list[number-1], human_list[number-2]]
+        pick = [human_list[number]]
+        print(f'picked_human is {pick}')
+        temp_indices = []
+        temp_label_list = []
+        train_2_indices = []
+        
+        for i, item in enumerate(label_list):
+            if item[1] in pick:
+                train_2_indices.append(i)
+            else:
+                temp_indices.append(i)
+                temp_label_list.append(item[0])
+        splited = train_test_split(temp_indices, temp_label_list, test_size=validation_split, stratify=temp_label_list)
+        train_indices = splited[0]
+        val_indices = splited[1]
+        if seen:
+            # train_indices = train_indices + train_2_indices[::6] + train_2_indices[1::6] + train_2_indices[2::6]
+            train_indices = train_indices + train_2_indices[::2]
+
+else:
+    if mode == 'human':
+        word_list = sorted(list(set([item[0] for item in label_list])))
+        pick  = random.choices(word_list, k=int(len(word_list)*validation_split))
+        for i, item in enumerate(label_list):
+            if item[0] in pick:
+                val_indices.append(i)
+            else:
+                train_indices.append(i)
+    else:
+        human_list = sorted(list(set([item[1] for item in label_list])))
+        pick  = random.choices(human_list, k=int(len(human_list)*validation_split))        
+        for i, item in enumerate(label_list):
+            if item[1] in pick:
+                val_indices.append(i)
+            else:
+                train_indices.append(i)
+dataset.remove()
+dataset_test.remove()
 labels = dataset.to_index()
 labels_test = dataset_test.to_index()
 
@@ -210,49 +197,20 @@ real_test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=batch_si
                                            collate_fn=collate_fn, sampler=test_sampler, num_workers=0, worker_init_fn=seed_worker)
 
 sample_rate = dataset[0][2]
-new_sample_rate = 1000
+new_sample_rate = 2000
 waveform = dataset[0][0]
-# transform = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=new_sample_rate)
 
 if model_base == '2D':
     spec = torchaudio.transforms.Spectrogram(n_fft=128, hop_length=32).to(device)
     data = next(iter(train_loader))
     db = torchaudio.transforms.AmplitudeToDB()
-    if use_mel:
-        mel = torchaudio.transforms.MelScale(n_mels=65, sample_rate=new_sample_rate).to(device)
-        m = 0
-        s = 0
-        for item in train_mean_loader:
-            m += mel(db(spec(item[0].to(device))).mean(axis=0))
-            s += mel(db(spec(item[0].to(device))).std(axis=0))
-        m = m / len(dataset_test)
-        s = s / len(dataset_test)        
 
-    else:
-        m = 0
-        s = 0
-        for item in train_mean_loader:
-            m += torch.log(spec(item[0].to(device))).mean(axis=(0))
-            s += torch.log(spec(item[0].to(device))).std(axis=(0))
-        m = m / len(dataset)
-        s = s / len(dataset)
-
-    # model = FC_Net(n_input=transformed.shape[0], n_output=len(labels), batch_size=batch_size)
-    if mode == 'word':
-        if model_type == 'CNN_TD':
-            model = CNN_TD(num_classes=len(labels))
-        if model_type == 'Spinal':
-            model = SpinalVGG(num_classes=len(labels))
-        if model_type == 'Marble':
-            model = MarbleNet(num_classes=len(labels))
-
-    else:
-        if model_type == 'CNN_TD':
-            model = CNN_TD(num_classes=len(labels))
-        if model_type == 'Spinal':
-            model = SpinalVGG(num_classes=len(labels))
-        if model_type == 'Marble':
-            model = MarbleNet(num_classes=len(labels))
+    if model_type == 'CNN_TD':
+        model = CNN_TD(num_classes=len(labels))
+    if model_type == 'Spinal':
+        model = SpinalVGG(num_classes=len(labels))
+    if model_type == 'Marble':
+        model = MarbleNet(num_classes=len(labels))
 
 elif model_base == '1D':
     model = sample_NET(n_input=waveform.shape[0], n_output=len(labels), batch_size=batch_size)
@@ -266,8 +224,8 @@ if args.mode == 'human':
     n_epoch = 40
 else:
     n_epoch = 80
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.7)
 
+scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.7)
 freq_masking = T.FrequencyMasking(freq_mask_param=10)
 time_masking = T.TimeMasking(time_mask_param=5)
 deltas = torchaudio.transforms.ComputeDeltas()
@@ -282,13 +240,7 @@ def train(model, epoch, log_interval, scheduler):
 
         if model_base =='2D':
             data = spec(data)
-            # data = db(data)
-            if use_mel:
-                data = mel(data)
             data = torch.log(data + 1e-8)
-            # m = data.mean(axis=(0,1), keepdims=True)
-            # s = data.mean(axis=(0,1), keepdims=True)
-            # data = (data - m)/s
             data = freq_masking(data)
             data = time_masking(data)
 
@@ -330,13 +282,7 @@ def test(model, epoch, test_loader_):
 
         if model_base == '2D':
             data = spec(data)
-            # data = db(data)
-            if use_mel:
-                data = mel(data)
             data = torch.log(data + 1e-8)
-            # m = data.mean(axis=(0,1), keepdims=True)
-            # s = data.mean(axis=(0,1), keepdims=True)
-            # data = (data - m)/s
 
         output = model(data)    
         pred = get_likely_index(output)
@@ -348,15 +294,13 @@ def test(model, epoch, test_loader_):
         losses.append(loss.item())        
         # update progress bar
         pbar.update(pbar_update)
+
     print(f"\nTest Epoch: {epoch}\tAccuracy: {correct}/{n_pred} ({100. * correct / n_pred:.0f}%)\n")
     accuracy = 100. * correct / n_pred
     return  sum(losses)/len(losses), accuracy, empty_pred, empty_target
 
 log_interval = 300
 pbar_update = 1 / (len(train_loader) + len(test_loader))
-# if is_save:
-#     torch.save(model.state_dict(), f'./saved_model/{mode}_{model_base}_{model_type}noise.pth')
-# The transform needs to live on the same device as the model and the data.
 max_patient = 80
 writer = SummaryWriter(log_dir=mode, filename_suffix=f'{model_base}_{model_type}')
 import copy
@@ -382,7 +326,6 @@ with tqdm(total=n_epoch) as pbar:
             early_count += 1
             if early_count == max_patient:
                 break
-        # _, _, _, _ =  test(best_model, epoch, real_test_loader)
         print(epoch)
         writer.add_scalar(f'Loss/train', loss_train, global_step=epoch)
         writer.add_scalar(f'Loss/test',loss_test, global_step=epoch)
@@ -395,18 +338,7 @@ print(f'\n Max Test Accuracy is {accuracy_test} when epoch is {max_epoch}')
 print(f'parameter is {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
 target = total_target.cpu().numpy()
 pred = total_pred.cpu().numpy()
-# for (data, target) in test_loader:
-#     data = data.to(device)
-#     target = target.to(device)     
 
-#     if model_base == '2D':
-#         data = spec(data)
-#         data = db(data)
-#         if use_mel:
-#             data = mel(data)
-#         # data = (data - m)/s
-
-#     output = model(data)    
 import seaborn as sn
 import pandas as pd
 writer.flush()
