@@ -128,7 +128,7 @@ else:
         else:
             human_list = sorted(list(set([item[1] for item in label_list])))
             pick = [human_list[number]]
-            # pick  = [human_list[number], human_list[number-1], human_list[number-2]]     
+            pick  = [human_list[number], human_list[number-1], human_list[number-2]]     
             print(f'picked_human is {pick}')
             for i, item in enumerate(label_list):
                 if item[1] in pick:
@@ -152,6 +152,7 @@ else:
         else:
             human_list = sorted(list(set([item[1] for item in label_list])))
             pick = [human_list[number], human_list[number-1], human_list[number-2]]
+            pick = [human_list[number]]
             print(f'picked_human is {pick}')
             temp_indices = []
             temp_label_list = []
@@ -167,7 +168,9 @@ else:
             train_indices = splited[0]
             val_indices = splited[1]
             if seen:
-                train_indices = train_indices + train_2_indices[::6] + train_2_indices[1::6] + train_2_indices[2::6]
+                # train_indices = train_indices + train_2_indices[::6] + train_2_indices[1::6] + train_2_indices[2::6]
+                train_indices = train_indices + train_2_indices[::2]
+
     else:
         if mode == 'human':
             word_list = sorted(list(set([item[0] for item in label_list])))
@@ -285,7 +288,6 @@ def train(model, epoch, log_interval, scheduler):
             data = torch.log(data + 1e-8)
             # m = data.mean(axis=(0,1), keepdims=True)
             # s = data.mean(axis=(0,1), keepdims=True)
-            data = data + torch.randn([], device=device)*0.5 - 1/4 
             # data = (data - m)/s
             data = freq_masking(data)
             data = time_masking(data)
@@ -368,7 +370,7 @@ with tqdm(total=n_epoch) as pbar:
         loss_train, accuracy_train = train(model, epoch, log_interval, scheduler)
         loss_test, accuracy_test, total_pred, total_target = test(model, epoch, test_loader)
 
-        if max_acc < accuracy_test:
+        if max_acc <= accuracy_test:
             max_acc = accuracy_test
             early_count = 0
             max_epoch = epoch
@@ -390,6 +392,7 @@ with tqdm(total=n_epoch) as pbar:
 
 loss_test, accuracy_test, total_pred, total_target =  test(best_model, epoch, real_test_loader)
 print(f'\n Max Test Accuracy is {accuracy_test} when epoch is {max_epoch}') 
+print(f'parameter is {sum(p.numel() for p in model.parameters() if p.requires_grad)}')
 target = total_target.cpu().numpy()
 pred = total_pred.cpu().numpy()
 # for (data, target) in test_loader:
