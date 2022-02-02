@@ -34,10 +34,27 @@ def csv_to_wav(data, save_folder, human_index, index):
     sf.write(write_path + '.wav', np_data, sr)
     
 
+def wav_to_direc(data, save_folder, human_index, index):
+
+    np_data, sr = librosa.load(data)
+    np_data = np_data[-int(1.6*sr):]
+    if len(np_data) < int(1.6*sr):
+        np_data = np.pad(np_data, int(1.6*sr) - len(np_data))[-int(1.6*sr):]
+    if len(np_data) != int(1.6*sr):
+        import pdb; pdb.set_trace()
+    np_data = np_data.astype(np.float32)
+    np_data = np_data - np.mean(np_data)
+    np_data = np_data / np.max(np.abs(np_data))
+    write_path = save_folder + '/data_' + str(index) + '_'+ str(human_index)
+    sf.write(write_path + '.wav', np_data, sr)
+    
+
+    
+
 if __name__ == "__main__":
     abs_path = '/home/pjh/다운로드'
-    folder_path = 'wed_six_tweleve'
-    save_path = 'data_reco'
+    folder_path = 'new'
+    save_path = 'new_version_all_3'
     
     folder_path  =os.path.join(abs_path, folder_path)
     save_path = os.path.join(abs_path, save_path)
@@ -67,6 +84,11 @@ if __name__ == "__main__":
             start = row[1]
             end = row[2]
             item_row = [item for item in data_list \
-                        if (int(item[-7:-4]) >= start) and (int(item[-7:-4]) <= end)]
+                        if (int(os.path.basename(item).split('.')[0][3:]) >= start) and (int(os.path.basename(item).split('.')[0][3:]) <= end)\
+                            and (item.endswith('CSV'))]
+                
             temp = [csv_to_wav(pd.read_csv(item), save_folder, person_index, i)\
-                    for i, item in enumerate(item_row)]
+                        for i, item in enumerate(item_row)]
+
+#            temp = [wav_to_direc(item, save_folder, person_index, i)\
+#                        for i, item in enumerate(item_row)]
