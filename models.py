@@ -84,6 +84,10 @@ class sample_NET(nn.Module):
         self.conv1 = nn.Conv1d(n_input, n_channel, kernel_size=3, stride=3)
         self.bn1 = nn.BatchNorm1d(n_channel)
 
+        self.conv1_1 = nn.Conv1d(n_channel, n_channel, kernel_size=3, stride=3)
+        self.bn1_1 = nn.BatchNorm1d(n_channel)
+
+
         self.conv2 = nn.Conv1d(n_channel, n_channel, kernel_size=3, stride=1)
         self.bn2 = nn.BatchNorm1d(n_channel)
         self.pool2 = nn.MaxPool1d(3)
@@ -107,9 +111,9 @@ class sample_NET(nn.Module):
         self.weight = None
         self.flat = nn.Flatten()
         self.drop1 = nn.Dropout(p=0.2)
-        self.drop2 = nn.Dropout(p=0)
+        self.drop2 = nn.Dropout(p=0.2)
         self.drop3 = nn.Dropout(p=0.2)
-        self.drop4 = nn.Dropout(p=0)
+        self.drop4 = nn.Dropout(p=0.2)
         self.drop5 = nn.Dropout(p=0.2)
         
         self.batch = batch_size
@@ -121,6 +125,10 @@ class sample_NET(nn.Module):
     def forward(self, x):
         x = self.conv1(x)
         x = F.relu(self.bn1(x))
+
+        x = self.conv1_1(x)
+        x = F.relu(self.bn1_1(x))
+
 
         x = self.conv2(x)
         x = F.relu(self.bn2(x))
@@ -173,13 +181,6 @@ class SpinalVGG(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
-        for m in s.children():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
         return s
     
     def three_conv_pool(self,in_channels, f1, f2, f3):
@@ -195,25 +196,18 @@ class SpinalVGG(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
-        for m in s.children():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
         return s
         
     
     def __init__(self, num_classes=10):
         super(SpinalVGG, self).__init__()
-        self.l1 = self.two_conv_pool(1, 64, 64)
-        self.l2 = self.two_conv_pool(64, 128, 128)
-        self.l3 = self.three_conv_pool(128, 256, 256, 256)
-        self.l4 = self.three_conv_pool(256, 256, 256, 256)
+        self.l1 = self.two_conv_pool(1, 32, 32)
+        self.l2 = self.two_conv_pool(32, 64, 64)
+        self.l3 = self.three_conv_pool(64, 128, 128, 128)
+        # self.l4 = self.three_conv_pool(128, 128, 128, 128)
         
-        Half_width =128
-        layer_width =128
+        Half_width = 64
+        layer_width = 64
         self.fc_spinal_layer1 = nn.Sequential(
             nn.Dropout(p = 0.2), nn.Linear(Half_width, layer_width),
             nn.BatchNorm1d(layer_width), nn.ReLU(inplace=True),)
@@ -231,12 +225,12 @@ class SpinalVGG(nn.Module):
         
     
     def forward(self, x):
-        Half_width =128
-        layer_width =128
+        Half_width = 64
+        layer_width = 64
         x = self.l1(x)
         x = self.l2(x)
         x = self.l3(x)
-        x = self.l4(x)
+        # x = self.l4(x)
         x = x.view(x.size(0), -1)
         
         x1 = self.fc_spinal_layer1(x[:, 0:Half_width])
@@ -260,205 +254,20 @@ from torch import Tensor
 import torch.nn as nn
 
 
-class SubSpectralNorm(nn.Module):
-    def __init__(self, C, S, eps=1e-5):
-        super(SubSpectralNorm, self).__init__()
-        self.S = S
-        self.eps = eps
-        self.bn = nn.BatchNorm2d(C*S)
-
-    def forward(self, x):
-        # x: input features with shape {N, C, F, T}
-        # S: number of sub-bands
-        N, C, F, T = x.size()
-        x = x.view(N, C * self.S, F // self.S, T)
-
-        x = self.bn(x)
-
-        return x.view(N, C, F, T)
-
-
-class BroadcastedBlock(nn.Module):
-    def __init__(
-            self,
-            planes: int,
-            dilation=1,
-            stride=1,
-            temp_pad=(0, 1),
-    ) -> None:
-        super(BroadcastedBlock, self).__init__()
-
-        self.freq_dw_conv = nn.Conv2d(planes, planes, kernel_size=(3, 1), padding=(1, 0), groups=planes,
-                                      dilation=dilation,
-                                      stride=stride, bias=False)
-        self.ssn1 = SubSpectralNorm(planes, 5)
-        self.temp_dw_conv = nn.Conv2d(planes, planes, kernel_size=(1, 3), padding=temp_pad, groups=planes,
-                                      dilation=dilation, stride=stride, bias=False)
-        self.bn = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.channel_drop = nn.Dropout2d(p=0.5)
-        self.swish = nn.SiLU()
-        self.conv1x1 = nn.Conv2d(planes, planes, kernel_size=(1, 1), bias=False)
-
-    def forward(self, x: Tensor) -> Tensor:
-        identity = x
-
-        # f2
-        ##########################
-        out = self.freq_dw_conv(x)
-        # out = self.ssn1(out)
-        ##########################
-
-        auxilary = out
-        out = out.mean(2, keepdim=True)  # frequency average pooling
-
-        # f1
-        ############################
-        out = self.temp_dw_conv(out)
-        out = self.bn(out)
-        out = self.swish(out)
-        out = self.conv1x1(out)
-        out = self.channel_drop(out)
-        ############################
-
-        out = out + identity + auxilary
-        out = self.relu(out)
-
-        return out
-
-
-class TransitionBlock(nn.Module):
-
-    def __init__(
-            self,
-            inplanes: int,
-            planes: int,
-            dilation=1,
-            stride=1,
-            temp_pad=(0, 1),
-    ) -> None:
-        super(TransitionBlock, self).__init__()
-
-        self.freq_dw_conv = nn.Conv2d(planes, planes, kernel_size=(3, 1), padding=(1, 0), groups=planes,
-                                      stride=stride,
-                                      dilation=dilation, bias=False)
-        self.ssn = SubSpectralNorm(planes, 5)
-        self.temp_dw_conv = nn.Conv2d(planes, planes, kernel_size=(1, 3), padding=temp_pad, groups=planes,
-                                      dilation=dilation, stride=stride, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.channel_drop = nn.Dropout2d(p=0.5)
-        self.swish = nn.ReLU()
-        self.conv1x1_1 = nn.Conv2d(inplanes, planes, kernel_size=(1, 1), bias=False)
-        self.conv1x1_2 = nn.Conv2d(planes, planes, kernel_size=(1, 1), bias=False)
-
-    def forward(self, x: Tensor) -> Tensor:
-        # f2
-        #############################
-        out = self.conv1x1_1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.freq_dw_conv(out)
-        # out = self.ssn(out)
-        #############################
-        auxilary = out
-        out = out.mean(2, keepdim=True)  # frequency average pooling
-
-        # f1
-        #############################
-        out = self.temp_dw_conv(out)
-        out = self.bn2(out)
-        out = self.swish(out)
-        out = self.conv1x1_2(out)
-        out = self.channel_drop(out)
-        #############################
-
-        out = auxilary + out
-        out = self.relu(out)
-
-        return out
-
-
-class BCResNet(torch.nn.Module):
-    def __init__(self, output_size):
-        super(BCResNet, self).__init__()
-        self.output = output_size
-        self.conv1 = nn.Conv2d(1, 16, 5, stride=(2, 1), padding=(2, 2))
-        self.block1_1 = TransitionBlock(16, 8)
-        self.block1_2 = BroadcastedBlock(8)
-
-        self.block2_1 = TransitionBlock(8, 12, stride=(2, 1), dilation=(1, 2), temp_pad=(0, 2))
-        self.block2_2 = BroadcastedBlock(12, dilation=(1, 2), temp_pad=(0, 2))
-
-        self.block3_1 = TransitionBlock(12, 16, stride=(2, 1), dilation=(1, 4), temp_pad=(0, 4))
-        self.block3_2 = BroadcastedBlock(16, dilation=(1, 4), temp_pad=(0, 4))
-        self.block3_3 = BroadcastedBlock(16, dilation=(1, 4), temp_pad=(0, 4))
-        self.block3_4 = BroadcastedBlock(16, dilation=(1, 4), temp_pad=(0, 4))
-
-        self.block4_1 = TransitionBlock(16, 20, dilation=(1, 8), temp_pad=(0, 8))
-        self.block4_2 = BroadcastedBlock(20, dilation=(1, 8), temp_pad=(0, 8))
-        self.block4_3 = BroadcastedBlock(20, dilation=(1, 8), temp_pad=(0, 8))
-        self.block4_4 = BroadcastedBlock(20, dilation=(1, 8), temp_pad=(0, 8))
-
-        self.conv2 = nn.Conv2d(20, 20, 5, groups=20, padding=(0, 2))
-        self.conv3 = nn.Conv2d(20, 32, 1, bias=False)
-        self.conv4 = nn.Conv2d(32, 12, 1, bias=False)
-        self.weight= None
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    def forward(self, x):
-
-        out = self.conv1(x)
-
-        out = self.block1_1(out)
-        out = self.block1_2(out)
-
-        out = self.block2_1(out)
-        out = self.block2_2(out)
-
-        out = self.block3_1(out)
-        out = self.block3_2(out)
-        out = self.block3_3(out)
-        out = self.block3_4(out)
-
-        out = self.block4_1(out)
-        out = self.block4_2(out)
-        out = self.block4_3(out)
-        out = self.block4_4(out)
-
-        out = self.conv2(out)
-
-        out = self.conv3(out)
-        out = out.mean(-1, keepdim=True)
-
-        out = self.conv4(out)
-        out = torch.reshape(out, [out.shape[0], -1])
-        if self.weight is None:
-           self.weight = nn.Parameter(torch.randn(self.output, out.size()[1])).to(self.device)
-        out = F.linear(out, self.weight)
-
-        return out
-
 class MarbleNet(nn.Module):
   def __init__(self, num_classes, C=130):
     super(MarbleNet, self).__init__()
     dropout = 0.2
     self.prologue = nn.Sequential(
-      nn.Conv1d(65, C, groups=65, kernel_size=11, padding='same', bias=False),
+      nn.Conv1d(C//2, C//2, groups=65, kernel_size=11, padding='same', bias=False),
+      nn.Conv1d(C//2, C, groups=1, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C),
       nn.ReLU(inplace=True)
     )
 
     self.sub00 = nn.Sequential(
       nn.Conv1d(C, C, kernel_size=13, groups=C, padding='same', bias=False),
-      nn.Conv1d(C, C//2, kernel_size=1,padding='same', bias=False),
-      nn.BatchNorm1d(C//2),
-      nn.ReLU(inplace=True),
-      nn.Dropout(dropout),
-
-      nn.Conv1d(C//2, C//2, kernel_size=13, groups=C//2, padding='same', bias=False),
-      nn.Conv1d(C//2, C//2, kernel_size=1,padding='same', bias=False),
+      nn.Conv1d(C, C//2, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C//2),
       nn.ReLU(inplace=True),
       nn.Dropout(dropout),
@@ -467,12 +276,6 @@ class MarbleNet(nn.Module):
       nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C//2),
     )
-
-    # self.sub01 = nn.Sequential(
-    #   nn.Conv1d(C//2, C//2, kernel_size=13, groups=C//2, padding='same', bias=False),
-    #   nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
-    #   nn.BatchNorm1d(C//2)
-    # )
 
     self.sub02 = nn.Sequential(
       nn.ReLU(inplace=True),
@@ -491,22 +294,12 @@ class MarbleNet(nn.Module):
       nn.ReLU(inplace=True),
       nn.Dropout(dropout),
 
-      nn.Conv1d(C//2, C//2, kernel_size=15, groups=C//2, padding='same', bias=False),
-      nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
-      nn.BatchNorm1d(C//2),
-      nn.ReLU(inplace=True),
-      nn.Dropout(dropout),
 
       nn.Conv1d(C//2, C//2, kernel_size=15, groups=C//2, padding='same', bias=False),
       nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C//2),
     )
 
-    # self.sub11 = nn.Sequential(
-    #   nn.Conv1d(C//2, C//2, kernel_size=15, groups=C//2, padding='same', bias=False), 
-    #   nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
-    #   nn.BatchNorm1d(C//2)
-    # )
 
     self.sub12 = nn.Sequential(
       nn.ReLU(inplace=True),
@@ -528,20 +321,7 @@ class MarbleNet(nn.Module):
       nn.Conv1d(C//2, C//2, kernel_size=17, groups=C//2, padding='same', bias=False),
       nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C//2),
-      nn.ReLU(inplace=True),
-      nn.Dropout(dropout),
-
-
-      nn.Conv1d(C//2, C//2, kernel_size=17, groups=C//2, padding='same', bias=False),
-      nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
-      nn.BatchNorm1d(C//2),
     )
-
-    # self.sub21 = nn.Sequential(
-    #   nn.Conv1d(C//2, C//2, kernel_size=17, groups=C//2, padding='same', bias=False),
-    #   nn.Conv1d(C//2, C//2, kernel_size=1, padding='same', bias=False),
-    #   nn.BatchNorm1d(C//2)
-    # )
 
     self.sub22 = nn.Sequential(
       nn.ReLU(inplace=True),
@@ -554,13 +334,8 @@ class MarbleNet(nn.Module):
     )
 
     self.epi1 = nn.Sequential(
-      nn.Conv1d(C//2, C, groups=C//2, kernel_size=29, dilation=2, padding='same', bias=False),
-      nn.BatchNorm1d(C),
-      nn.ReLU()
-    )
-
-    self.epi2 = nn.Sequential(
-      nn.Conv1d(C, C, kernel_size=1, padding='same', bias=False),
+      nn.Conv1d(C//2, C//2, groups=C//2, kernel_size=29, dilation=2, padding='same', bias=False),
+      nn.Conv1d(C//2, C, kernel_size=1, padding='same', bias=False),
       nn.BatchNorm1d(C),
       nn.ReLU()
     )
@@ -575,25 +350,22 @@ class MarbleNet(nn.Module):
     x = self.prologue(input)
     x_ = self.sub0C(x)
     x = self.sub00(x)
-    # x = self.sub01(x)
     
     x = x + x_
     x = self.sub02(x)
 
     x_ = self.sub1C(x)
     x = self.sub10(x)
-    # x = self.sub11(x)
     x = x + x_
     x = self.sub12(x)
 
     x_ = self.sub2C(x)
     x = self.sub20(x)
-    # x = self.sub21(x)
     x = x + x_
     x = self.sub22(x)
 
     x = self.epi1(x)
-    x = self.epi2(x)
+    # x = self.epi2(x)
     x = torch.mean(x, dim=2, keepdim=True)
     x = self.epi3(x)
     x = self.sigmoid(x)
@@ -644,3 +416,8 @@ class CNN_TD(nn.Module):
     x = self.linear_3(x)
     x = self.linear_4(x)    
     return x
+
+if __name__ == '__main__':
+  model = MarbleNet(10)
+  tensor_ = torch.ones([10, 1, 65, 32])
+  print(sum(p.numel() for p in model.parameters() if p.requires_grad))
