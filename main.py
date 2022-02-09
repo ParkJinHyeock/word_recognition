@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from torchaudio.datasets import SPEECHCOMMANDS
 import os
-from dataset import SubsetSC, small_dataset
+from dataset import small_dataset
 from models import *
 from utils import *
 import torchvision.models as models
@@ -138,8 +138,10 @@ elif split_mode == 'huristic_cross':
 elif split_mode == 'new_huristic_cross':
     if mode == 'word':
         human_list = sorted(list(set([item[1] for item in label_list])))
-        pick = [human_list[number], human_list[number-1], human_list[number-2]]
-        pick = [human_list[number]]
+        if 'mic' not in args.path: # Case for run, eat, noise
+            pick = [human_list[number], human_list[number-1], human_list[number-2]]
+        else: # Case for noise only(mic)
+            pick = [human_list[number]]
         print(f'picked_human is {pick}')
         temp_indices = []
         temp_label_list = []
@@ -155,8 +157,10 @@ elif split_mode == 'new_huristic_cross':
         train_indices = splited[0]
         val_indices = splited[1]
         if seen:
-            # train_indices = train_indices + train_2_indices[::6] + train_2_indices[1::6] + train_2_indices[2::6]
-            train_indices = train_indices + train_2_indices[::2]
+            if 'mic' not in args.path:
+                train_indices = train_indices + train_2_indices[::6] + train_2_indices[1::6] + train_2_indices[2::6]
+            else:
+                train_indices = train_indices + train_2_indices[::2]
 
 else:
     if mode == 'human':
@@ -205,8 +209,6 @@ if model_base == '2D':
     data = next(iter(train_loader))
     db = torchaudio.transforms.AmplitudeToDB()
 
-    if model_type == 'CNN_TD':
-        model = CNN_TD(num_classes=len(labels))
     if model_type == 'Spinal':
         model = SpinalVGG(num_classes=len(labels))
     if model_type == 'Marble':
@@ -257,12 +259,9 @@ def train(model, epoch, log_interval, scheduler):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # update progress bar
         pbar.update(pbar_update)
-        # record loss
         losses.append(loss.item())
     print(f"\nTrain Epoch: {epoch}\tAccuracy: {correct}/{len(train_indices)} ({100. * correct / len(train_indices):.0f}%)\n")
-    # count number of correct predictions
     accuracy = 100. * correct / (len(train_loader.dataset)*(1-validation_split))
     return sum(losses)/len(losses), accuracy
 
@@ -301,7 +300,6 @@ def test(model, epoch, test_loader_):
 
 log_interval = 300
 pbar_update = 1 / (len(train_loader) + len(test_loader))
-max_patient = 80
 writer = SummaryWriter(log_dir=mode, filename_suffix=f'{model_base}_{model_type}')
 import copy
 with tqdm(total=n_epoch) as pbar:
@@ -322,10 +320,7 @@ with tqdm(total=n_epoch) as pbar:
             pred = total_pred
             with torch.no_grad():
                 best_model = copy.deepcopy(model)
-        else:
-            early_count += 1
-            if early_count == max_patient:
-                break
+
         print(epoch)
         writer.add_scalar(f'Loss/train', loss_train, global_step=epoch)
         writer.add_scalar(f'Loss/test',loss_test, global_step=epoch)

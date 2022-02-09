@@ -60,8 +60,6 @@ class sample_NET(nn.Module):
         
         self.batch = batch_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.linear_1 = torch.nn.Linear(n_output, 3*n_output)
-        self.linear_2 = torch.nn.Linear(3*n_output, n_output)
         self.linear_3 = torch.nn.LazyLinear(self.output)
 
     def forward(self, x):
@@ -98,10 +96,6 @@ class sample_NET(nn.Module):
         # x = self.drop4(x)
 
         x = self.flat(x)
-
-        # if self.weight is None:
-        #    self.weight = nn.Parameter(torch.randn(self.output, x.size()[1])).to(self.device)
-        # x = F.linear(x, self.weight)
         x = self.linear_3(x)
 
         return F.log_softmax(x, dim=1)
@@ -360,6 +354,7 @@ class CNN_TD(nn.Module):
     return x
 
 if __name__ == '__main__':
-  model = MarbleNet(10)
+  model = MarbleNet(11)
   tensor_ = torch.ones([10, 1, 65, 32])
+  print(model(tensor_).shape)
   print(sum(p.numel() for p in model.parameters() if p.requires_grad))
